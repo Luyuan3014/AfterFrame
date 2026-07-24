@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -7,7 +8,11 @@ import '../services/media_engine.dart';
 import '../theme.dart';
 
 class VideoPickerScreen extends StatefulWidget {
-  const VideoPickerScreen({super.key, required this.engine, required this.mode});
+  const VideoPickerScreen({
+    super.key,
+    required this.engine,
+    required this.mode,
+  });
   final MediaEngine engine;
   final int mode;
 
@@ -16,10 +21,14 @@ class VideoPickerScreen extends StatefulWidget {
 }
 
 class _VideoPickerScreenState extends State<VideoPickerScreen> {
+  final _scrollController = ScrollController();
+  final List<String> _selectedUris = [];
   List<MediaAsset> _videos = const [];
   bool _loading = true;
   bool _denied = false;
-  String? _openingUri;
+  bool _submitting = false;
+  bool _showScrollbar = false;
+  Timer? _scrollbarTimer;
 
   @override
   void initState() {
@@ -27,8 +36,18 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _scrollbarTimer?.cancel();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
-    setState(() { _loading = true; _denied = false; });
+    setState(() {
+      _loading = true;
+      _denied = false;
+    });
     try {
       final allowed = await widget.engine.requestVideoAccess();
       if (!allowed) {
@@ -36,7 +55,13 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
         return;
       }
       final videos = await widget.engine.listVideos();
-      if (mounted) setState(() => _videos = videos);
+      if (mounted) {
+        final available = videos.map((item) => item.uri).toSet();
+        setState(() {
+          _videos = videos;
+          _selectedUris.removeWhere((uri) => !available.contains(uri));
+        });
+      }
     } catch (error) {
       if (mounted) _message(error);
     } finally {
@@ -44,59 +69,149 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
     }
   }
 
-  Future<void> _open(MediaAsset item) async {
-    if (_openingUri != null) return;
-    setState(() => _openingUri = item.uri);
+  void _toggle(MediaAsset item) {
+    if (_submitting) return;
+    setState(() {
+      final index = _selectedUris.indexOf(item.uri);
+      if (index >= 0) {
+        _selectedUris.removeAt(index);
+      } else {
+        _selectedUris.add(item.uri);
+      }
+    });
+  }
+
+  Future<void> _submit() async {
+    if (_selectedUris.isEmpty || _submitting) return;
+    setState(() => _submitting = true);
     try {
-      final asset = await widget.engine.inspectVideo(item.uri);
-      if (mounted) Navigator.pop(context, asset);
+      final assets = <MediaAsset>[];
+      for (final uri in _selectedUris) {
+        assets.add(await widget.engine.inspectVideo(uri));
+      }
+      if (mounted) Navigator.pop(context, assets);
     } catch (error) {
       if (mounted) _message(error);
     } finally {
-      if (mounted) setState(() => _openingUri = null);
+      if (mounted) setState(() => _submitting = false);
     }
   }
 
+  bool _onScroll(ScrollNotification notification) {
+    _scrollbarTimer?.cancel();
+    if (!_showScrollbar && mounted) setState(() => _showScrollbar = true);
+    if (notification is ScrollEndNotification) {
+      _scrollbarTimer = Timer(const Duration(milliseconds: 850), () {
+        if (mounted) setState(() => _showScrollbar = false);
+      });
+    }
+    return false;
+  }
+
   void _message(Object error) => ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.toString()), behavior: SnackBarBehavior.floating),
-      );
+    SnackBar(
+      content: Text(error.toString()),
+      behavior: SnackBarBehavior.floating,
+    ),
+  );
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(
-          titleSpacing: 4,
-          title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(widget.mode == 1 ? '选择拼图视频' : '选择一段视频', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-            Text(widget.mode == 1 ? '用多个瞬间拼成动态叙事' : '挑选最值得留下的一帧', style: const TextStyle(fontSize: 11, color: AfterFrameColors.muted)),
-          ]),
-        ),
-        body: _body(),
-      );
+    appBar: AppBar(
+      titleSpacing: 4,
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            widget.mode == 1 ? '选择拼图视频' : '选择视频',
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+          ),
+          Text(
+            _selectedUris.isEmpty
+                ? '按选择顺序添加，可多选'
+                : '已选择 ${_selectedUris.length} 段视频',
+            style: TextStyle(
+              fontSize: 11,
+              color: _selectedUris.isEmpty
+                  ? AfterFrameColors.muted
+                  : AfterFrameColors.lime,
+            ),
+          ),
+        ],
+      ),
+    ),
+    body: _body(),
+    bottomNavigationBar: _selectedUris.isEmpty
+        ? null
+        : _SelectionBar(
+            count: _selectedUris.length,
+            mode: widget.mode,
+            loading: _submitting,
+            onSubmit: _submit,
+          ),
+  );
 
   Widget _body() {
-    if (_loading) return const Center(child: CircularProgressIndicator(color: AfterFrameColors.lime));
+    if (_loading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AfterFrameColors.lime),
+      );
+    }
     if (_denied) return _PermissionEmpty(onRetry: _load);
     if (_videos.isEmpty) {
-      return const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Icon(Icons.video_library_outlined, size: 72, color: Colors.white24),
-        SizedBox(height: 16),
-        Text('媒体库里还没有视频', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
-        SizedBox(height: 6),
-        Text('拍摄或保存视频后，它会出现在这里', style: TextStyle(color: AfterFrameColors.muted)),
-      ]));
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.video_library_outlined, size: 72, color: Colors.white24),
+            SizedBox(height: 16),
+            Text(
+              '媒体库里还没有视频',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+            ),
+            SizedBox(height: 6),
+            Text(
+              '拍摄或保存视频后，它会出现在这里',
+              style: TextStyle(color: AfterFrameColors.muted),
+            ),
+          ],
+        ),
+      );
     }
-    return RefreshIndicator(
-      color: AfterFrameColors.lime,
-      onRefresh: _load,
-      child: GridView.builder(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, mainAxisSpacing: 4, crossAxisSpacing: 4, childAspectRatio: .76),
-        itemCount: _videos.length,
-        itemBuilder: (_, index) => _VideoTile(
-          asset: _videos[index],
-          engine: widget.engine,
-          opening: _openingUri == _videos[index].uri,
-          onTap: () => _open(_videos[index]),
+    return NotificationListener<ScrollNotification>(
+      onNotification: _onScroll,
+      child: RawScrollbar(
+        controller: _scrollController,
+        thumbVisibility: _showScrollbar,
+        interactive: true,
+        thickness: 5,
+        radius: const Radius.circular(8),
+        thumbColor: AfterFrameColors.lime.withValues(alpha: .9),
+        minThumbLength: 42,
+        child: RefreshIndicator(
+          color: AfterFrameColors.lime,
+          onRefresh: _load,
+          child: GridView.builder(
+            controller: _scrollController,
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 28),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              mainAxisSpacing: 4,
+              crossAxisSpacing: 4,
+              childAspectRatio: .76,
+            ),
+            itemCount: _videos.length,
+            itemBuilder: (_, index) {
+              final asset = _videos[index];
+              final selectedIndex = _selectedUris.indexOf(asset.uri);
+              return _VideoTile(
+                asset: asset,
+                engine: widget.engine,
+                selectionOrder: selectedIndex < 0 ? null : selectedIndex + 1,
+                onTap: () => _toggle(asset),
+              );
+            },
+          ),
         ),
       ),
     );
@@ -104,49 +219,181 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
 }
 
 class _VideoTile extends StatefulWidget {
-  const _VideoTile({required this.asset, required this.engine, required this.opening, required this.onTap});
+  const _VideoTile({
+    required this.asset,
+    required this.engine,
+    required this.selectionOrder,
+    required this.onTap,
+  });
   final MediaAsset asset;
   final MediaEngine engine;
-  final bool opening;
+  final int? selectionOrder;
   final VoidCallback onTap;
   @override
   State<_VideoTile> createState() => _VideoTileState();
 }
 
 class _VideoTileState extends State<_VideoTile> {
-  late final Future<String> _thumbnail = widget.engine.videoThumbnail(widget.asset.uri);
+  late final Future<String> _thumbnail = widget.engine.videoThumbnail(
+    widget.asset.uri,
+  );
 
   @override
-  Widget build(BuildContext context) => Material(
-        color: AfterFrameColors.panelSoft,
+  Widget build(BuildContext context) {
+    final selected = widget.selectionOrder != null;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(13),
+        border: Border.all(
+          color: selected ? AfterFrameColors.lime : Colors.transparent,
+          width: 2,
+        ),
+      ),
+      child: Material(
+        color: AfterFrameColors.panelSoft,
+        borderRadius: BorderRadius.circular(11),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: widget.onTap,
-          child: Stack(fit: StackFit.expand, children: [
-            FutureBuilder<String>(
-              future: _thumbnail,
-              builder: (_, snapshot) => snapshot.hasData && snapshot.data!.isNotEmpty
-                  ? Image.file(File(snapshot.data!), fit: BoxFit.cover)
-                  : const Center(child: Icon(Icons.movie_outlined, color: Colors.white24)),
-            ),
-            const DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.transparent, Color(0xD9000000)], begin: Alignment.center, end: Alignment.bottomCenter))),
-            Positioned(
-              left: 7,
-              bottom: 7,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
-                child: Row(children: [
-                  const Icon(Icons.play_arrow_rounded, size: 13),
-                  Text(widget.asset.durationLabel, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700)),
-                ]),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              FutureBuilder<String>(
+                future: _thumbnail,
+                builder: (_, snapshot) =>
+                    snapshot.hasData && snapshot.data!.isNotEmpty
+                    ? Image.file(File(snapshot.data!), fit: BoxFit.cover)
+                    : const Center(
+                        child: Icon(
+                          Icons.movie_outlined,
+                          color: Colors.white24,
+                        ),
+                      ),
               ),
-            ),
-            if (widget.opening) const ColoredBox(color: Colors.black54, child: Center(child: CircularProgressIndicator(strokeWidth: 2, color: AfterFrameColors.lime))),
-          ]),
+              const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.transparent, Color(0xD9000000)],
+                    begin: Alignment.center,
+                    end: Alignment.bottomCenter,
+                  ),
+                ),
+              ),
+              Positioned(
+                right: 7,
+                top: 7,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  width: 25,
+                  height: 25,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: selected ? AfterFrameColors.lime : Colors.black38,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: selected ? AfterFrameColors.lime : Colors.white,
+                      width: 1.5,
+                    ),
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black38, blurRadius: 5),
+                    ],
+                  ),
+                  child: selected
+                      ? Text(
+                          '${widget.selectionOrder}',
+                          style: const TextStyle(
+                            color: Colors.black,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        )
+                      : null,
+                ),
+              ),
+              Positioned(
+                left: 7,
+                bottom: 7,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.play_arrow_rounded, size: 13),
+                      Text(
+                        widget.asset.durationLabel,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-      );
+      ),
+    );
+  }
+}
+
+class _SelectionBar extends StatelessWidget {
+  const _SelectionBar({
+    required this.count,
+    required this.mode,
+    required this.loading,
+    required this.onSubmit,
+  });
+  final int count;
+  final int mode;
+  final bool loading;
+  final VoidCallback onSubmit;
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    top: false,
+    child: Container(
+      padding: const EdgeInsets.fromLTRB(18, 11, 18, 11),
+      decoration: const BoxDecoration(
+        color: AfterFrameColors.panel,
+        border: Border(top: BorderSide(color: Colors.white10)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              '已按顺序选择 $count 段',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+          FilledButton(
+            onPressed: loading ? null : onSubmit,
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(116, 48),
+              padding: const EdgeInsets.symmetric(horizontal: 22),
+            ),
+            child: loading
+                ? const SizedBox.square(
+                    dimension: 19,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.black,
+                    ),
+                  )
+                : Text(mode == 1 ? '添加 ($count)' : '完成 ($count)'),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _PermissionEmpty extends StatelessWidget {
@@ -154,22 +401,43 @@ class _PermissionEmpty extends StatelessWidget {
   final VoidCallback onRetry;
   @override
   Widget build(BuildContext context) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Container(
-              width: 76,
-              height: 76,
-              decoration: BoxDecoration(color: AfterFrameColors.lime.withValues(alpha: .12), shape: BoxShape.circle),
-              child: const Icon(Icons.video_library_rounded, color: AfterFrameColors.lime, size: 36),
+    child: Padding(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 76,
+            height: 76,
+            decoration: BoxDecoration(
+              color: AfterFrameColors.lime.withValues(alpha: .12),
+              shape: BoxShape.circle,
             ),
-            const SizedBox(height: 20),
-            const Text('允许访问你的视频', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 8),
-            const Text('AfterFrame 只读取你选择用于创作的视频，不会上传媒体库内容。', textAlign: TextAlign.center, style: TextStyle(color: AfterFrameColors.muted, height: 1.5)),
-            const SizedBox(height: 24),
-            FilledButton.icon(onPressed: onRetry, icon: const Icon(Icons.lock_open_rounded), label: const Text('继续授权')),
-          ]),
-        ),
-      );
+            child: const Icon(
+              Icons.video_library_rounded,
+              color: AfterFrameColors.lime,
+              size: 36,
+            ),
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            '允许访问你的视频',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'AfterFrame 只读取你选择用于创作的视频，不会上传媒体库内容。',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AfterFrameColors.muted, height: 1.5),
+          ),
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.lock_open_rounded),
+            label: const Text('继续授权'),
+          ),
+        ],
+      ),
+    ),
+  );
 }
