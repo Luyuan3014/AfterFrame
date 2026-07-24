@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../models/media_asset.dart';
 import '../services/media_engine.dart';
 import '../theme.dart';
-import 'studio_screen.dart';
+import '../live_editor/live_editor_page.dart';
 import 'video_picker_screen.dart';
 
 class HomeShell extends StatefulWidget {
@@ -33,8 +33,11 @@ class _HomeShellState extends State<HomeShell> {
       if (!mounted || assets == null || assets.isEmpty) return;
       final result = await Navigator.of(context).push<LiveExport>(
         MaterialPageRoute(
-          builder: (_) =>
-              StudioScreen(assets: assets, engine: _engine, initialMode: mode),
+          builder: (_) => LiveEditorPage(
+            assets: assets,
+            engine: _engine,
+            initialMode: mode,
+          ),
         ),
       );
       if (result != null && mounted) {
