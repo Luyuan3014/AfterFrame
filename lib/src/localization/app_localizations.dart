@@ -134,6 +134,9 @@ class AppLocalizations {
       'readingVideo': '正在读懂这段视频…',
       'momentSaved': '这一刻，留下了',
       'savedToAlbum': '已保存到手机相册 · AfterFrame',
+      'shareToChat': '发送到微信 / 抖音（视频）',
+      'shareMotionOriginal': '分享动态照片原文件',
+      'shareCompatibilityHint': '聊天应用通常不会保留动态照片元数据；发送视频才能确保对方看到动态和声音。',
       'done': '完成',
       'createMode': '创作模式',
       'shapeMemory': '塑造你的动态记忆',
@@ -176,6 +179,7 @@ class AppLocalizations {
       'errorThumbnail': '无法生成视频缩略图',
       'errorFrame': '封面提取失败',
       'errorExport': 'Live 导出失败，请重试',
+      'errorShare': '无法打开分享面板，请重试',
       'errorGeneric': '操作失败，请重试',
     },
     AppLanguage.english: {
@@ -233,6 +237,10 @@ class AppLocalizations {
       'readingVideo': 'Understanding your video…',
       'momentSaved': 'Your moment lives on',
       'savedToAlbum': 'Saved to your gallery · AfterFrame',
+      'shareToChat': 'Send to WeChat / Douyin (video)',
+      'shareMotionOriginal': 'Share Motion Photo file',
+      'shareCompatibilityHint':
+          'Chat apps may remove Motion Photo metadata. Send the video to preserve motion and sound.',
       'done': 'Done',
       'createMode': 'CREATE MODE',
       'shapeMemory': 'Shape your memory',
@@ -276,6 +284,7 @@ class AppLocalizations {
       'errorThumbnail': 'Unable to create a video thumbnail',
       'errorFrame': 'Unable to extract the cover frame',
       'errorExport': 'Live export failed. Please try again.',
+      'errorShare': 'Unable to open the share sheet. Please try again.',
       'errorGeneric': 'Something went wrong. Please try again.',
     },
   };

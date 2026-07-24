@@ -121,6 +121,43 @@ class MediaEngine {
       throw MediaEngineException(error.code, error.message ?? 'Live 导出失败');
     }
   }
+
+  Future<void> shareMotionPhoto(PublishedLive published) => _shareMedia(
+    uri: published.liveUri,
+    mimeType: 'image/jpeg',
+    title: '分享动态照片原文件',
+  );
+
+  Future<void> shareVideo(PublishedLive published) => _shareMedia(
+    uri: published.galleryUri,
+    mimeType: 'video/mp4',
+    title: '发送到微信、抖音或其他应用',
+  );
+
+  Future<void> shareExportVideo(String uri) => _shareMedia(
+    uri: uri,
+    mimeType: 'video/mp4',
+    title: '发送到微信、抖音或其他应用',
+  );
+
+  Future<void> _shareMedia({
+    required String uri,
+    required String mimeType,
+    required String title,
+  }) async {
+    if (uri.isEmpty) {
+      throw const MediaEngineException('SHARE_EMPTY', '没有可分享的文件');
+    }
+    try {
+      await _channel.invokeMethod<void>('shareMedia', {
+        'uri': uri,
+        'mimeType': mimeType,
+        'title': title,
+      });
+    } on PlatformException catch (error) {
+      throw MediaEngineException(error.code, error.message ?? '无法打开分享面板');
+    }
+  }
 }
 
 class PublishedLive {

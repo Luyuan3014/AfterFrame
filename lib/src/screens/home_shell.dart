@@ -61,6 +61,14 @@ class _HomeShellState extends State<HomeShell> {
     ),
   );
 
+  Future<void> _shareExport(LiveExport export) async {
+    try {
+      await _engine.shareExportVideo(export.galleryUri);
+    } catch (error) {
+      if (mounted) _showError(error);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -71,7 +79,11 @@ class _HomeShellState extends State<HomeShell> {
           index: _page,
           children: [
             _Discover(onCreate: _create, loading: _picking),
-            _Works(exports: _exports, onCreate: () => _create()),
+            _Works(
+              exports: _exports,
+              onCreate: () => _create(),
+              onShare: _shareExport,
+            ),
             const _Profile(),
           ],
         ),
@@ -427,9 +439,14 @@ class _TipCard extends StatelessWidget {
 }
 
 class _Works extends StatelessWidget {
-  const _Works({required this.exports, required this.onCreate});
+  const _Works({
+    required this.exports,
+    required this.onCreate,
+    required this.onShare,
+  });
   final List<LiveExport> exports;
   final VoidCallback onCreate;
+  final ValueChanged<LiveExport> onShare;
 
   @override
   Widget build(BuildContext context) {
@@ -489,6 +506,15 @@ class _Works extends StatelessWidget {
                               child: Icon(
                                 Icons.motion_photos_on_rounded,
                                 color: AfterFrameColors.lime,
+                              ),
+                            ),
+                            Positioned(
+                              left: 6,
+                              top: 5,
+                              child: IconButton.filledTonal(
+                                tooltip: l10n.text('shareToChat'),
+                                onPressed: () => onShare(item),
+                                icon: const Icon(Icons.send_rounded, size: 18),
                               ),
                             ),
                             Positioned(

@@ -181,7 +181,47 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
             const SizedBox(height: 22),
             SizedBox(
               width: double.infinity,
-              child: FilledButton(
+              child: FilledButton.icon(
+                onPressed: () async {
+                  try {
+                    await widget.engine.shareVideo(published);
+                  } catch (_) {
+                    if (mounted) _message('errorShare');
+                  }
+                },
+                icon: const Icon(Icons.send_rounded),
+                label: Text(l10n.text('shareToChat')),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                  try {
+                    await widget.engine.shareMotionPhoto(published);
+                  } catch (_) {
+                    if (mounted) _message('errorShare');
+                  }
+                },
+                icon: const Icon(Icons.motion_photos_on_outlined),
+                label: Text(l10n.text('shareMotionOriginal')),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              l10n.text('shareCompatibilityHint'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AfterFrameColors.muted,
+                fontSize: 11,
+                height: 1.35,
+              ),
+            ),
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
                 onPressed: () => Navigator.pop(context),
                 child: Text(l10n.text('done')),
               ),

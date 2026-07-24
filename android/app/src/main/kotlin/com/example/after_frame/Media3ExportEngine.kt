@@ -3,11 +3,13 @@
 package com.example.after_frame
 
 import android.content.ContentValues
+import android.content.Intent
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.core.content.FileProvider
 import androidx.media3.common.MediaItem
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
@@ -16,14 +18,13 @@ import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.Transformer
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
-import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.UUID
 import java.util.concurrent.ExecutorService
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
 
 /** Frame-accurate export plus MediaStore publishing for the AfterFrame album. */
 class Media3ExportEngine(
@@ -96,6 +97,16 @@ class Media3ExportEngine(
         transformer = null
     }
 
+    fun share(uri: Uri, mimeType: String, chooserTitle: String) {
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = mimeType
+            putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = android.content.ClipData.newRawUri("AfterFrame", uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(sendIntent, chooserTitle))
+    }
+
     private fun packageAndPublish(
         call: MethodCall,
         motion: File,
@@ -111,45 +122,25 @@ class Media3ExportEngine(
             .take(40)
         val stamp = System.currentTimeMillis()
         val baseName = "${safeName}_$stamp"
-        val live = File(work, "$baseName.live")
-        val manifest = JSONObject().apply {
-            put("format", "com.afterframe.live")
-            put("version", 1)
-            put("engine", "androidx.media3.transformer")
-            put("createdAt", stamp)
-            put("sourceName", call.argument<String>("name"))
-            put("durationMs", endMs - startMs)
-            put("coverTimeMs", coverMs - startMs)
-            put("keepAudio", call.argument<Boolean>("keepAudio") ?: true)
-            put("loop", call.argument<Boolean>("loop") ?: false)
-            put("width", call.argument<Number>("width")?.toInt() ?: 0)
-            put("height", call.argument<Number>("height")?.toInt() ?: 0)
-            put("cover", "cover.jpg")
-            put("motion", "motion.mp4")
-        }
-        ZipOutputStream(FileOutputStream(live)).use { zip ->
-            addBytes(zip, "manifest.json", manifest.toString(2).toByteArray(Charsets.UTF_8))
-            addFile(zip, "cover.jpg", cover)
-            addFile(zip, "motion.mp4", motion)
-        }
+        // Motion Photo 1.0 is one JPEG: XMP metadata in an APP1 segment, followed
+        // by the original JPEG data and an MP4 appended after the JPEG EOI marker.
+        // The MP suffix is recommended by the Android specification and is used
+        // by some gallery readers as an additional recognition signal.
+        val motionPhoto = File(work, "${baseName}MP.jpg")
+        val presentationUs = ((coverMs - startMs).coerceIn(0, endMs - startMs)) * 1_000L
+        writeMotionPhoto(cover, motion, motionPhoto, presentationUs)
+
+        // Keep a private, share-ready MP4. It does not create a second visible
+        // gallery item, but FileProvider lets WeChat, Douyin and other apps read it.
+        val shareDirectory = File(context.filesDir, "afterframe/exports").apply { mkdirs() }
+        val shareVideo = File(shareDirectory, "$baseName.mp4")
+        motion.copyTo(shareVideo, overwrite = false)
 
         val published = mutableListOf<Uri>()
         try {
-            val videoUri = publishMedia(
-                source = motion,
-                displayName = "$baseName.mp4",
-                mimeType = "video/mp4",
-                collection = if (Build.VERSION.SDK_INT >= 29) {
-                    MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-                } else {
-                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-                },
-                publicDirectory = Environment.DIRECTORY_DCIM,
-                relativeFolder = "AfterFrame",
-            ).also(published::add)
-            val coverUri = publishMedia(
-                source = cover,
-                displayName = "$baseName.jpg",
+            val motionPhotoUri = publishMedia(
+                source = motionPhoto,
+                displayName = motionPhoto.name,
                 mimeType = "image/jpeg",
                 collection = if (Build.VERSION.SDK_INT >= 29) {
                     MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
@@ -159,29 +150,92 @@ class Media3ExportEngine(
                 publicDirectory = Environment.DIRECTORY_DCIM,
                 relativeFolder = "AfterFrame",
             ).also(published::add)
-            val liveUri = publishMedia(
-                source = live,
-                displayName = live.name,
-                mimeType = "application/vnd.afterframe.live",
-                collection = if (Build.VERSION.SDK_INT >= 29) {
-                    MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-                } else {
-                    MediaStore.Files.getContentUri("external")
-                },
-                publicDirectory = Environment.DIRECTORY_DOWNLOADS,
-                relativeFolder = "AfterFrame",
+            val shareVideoUri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                shareVideo,
             ).also(published::add)
             return mapOf(
-                "liveUri" to liveUri.toString(),
-                "galleryUri" to videoUri.toString(),
-                "coverUri" to coverUri.toString(),
+                "liveUri" to motionPhotoUri.toString(),
+                "galleryUri" to shareVideoUri.toString(),
+                "coverUri" to motionPhotoUri.toString(),
                 "displayName" to baseName,
                 "albumName" to "AfterFrame",
             )
         } catch (error: Exception) {
             published.asReversed().forEach(::removePublished)
+            shareVideo.delete()
             throw error
         }
+    }
+
+    private fun writeMotionPhoto(
+        cover: File,
+        motion: File,
+        destination: File,
+        presentationTimestampUs: Long,
+    ) {
+        val jpeg = cover.readBytes()
+        require(jpeg.size >= 2 && jpeg[0] == 0xFF.toByte() && jpeg[1] == 0xD8.toByte()) {
+            "封面不是有效的 JPEG 文件"
+        }
+        val videoLength = motion.length()
+        val xmp = """
+            <x:xmpmeta xmlns:x="adobe:ns:meta/">
+              <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+                <rdf:Description rdf:about=""
+                  xmlns:Camera="http://ns.google.com/photos/1.0/camera/"
+                  xmlns:Container="http://ns.google.com/photos/1.0/container/"
+                  xmlns:Item="http://ns.google.com/photos/1.0/container/item/"
+                  Camera:MotionPhoto="1"
+                  Camera:MotionPhotoVersion="1"
+                  Camera:MotionPhotoPresentationTimestampUs="$presentationTimestampUs">
+                  <Container:Directory>
+                    <rdf:Seq>
+                      <rdf:li rdf:parseType="Resource">
+                        <Container:Item Item:Mime="image/jpeg" Item:Semantic="Primary"/>
+                      </rdf:li>
+                      <rdf:li rdf:parseType="Resource">
+                        <Container:Item Item:Mime="video/mp4" Item:Semantic="MotionPhoto" Item:Length="$videoLength"/>
+                      </rdf:li>
+                    </rdf:Seq>
+                  </Container:Directory>
+                </rdf:Description>
+              </rdf:RDF>
+            </x:xmpmeta>
+        """.trimIndent().toByteArray(Charsets.UTF_8)
+        val xmpHeader = "http://ns.adobe.com/xap/1.0/\u0000".toByteArray(Charsets.US_ASCII)
+        val payloadLength = xmpHeader.size + xmp.size
+        require(payloadLength + 2 <= 0xFFFF) { "Motion Photo XMP 元数据过大" }
+        val app1Length = ByteBuffer.allocate(2)
+            .order(ByteOrder.BIG_ENDIAN)
+            .putShort((payloadLength + 2).toShort())
+            .array()
+        val insertionOffset = jpegMetadataEnd(jpeg)
+
+        FileOutputStream(destination).use { output ->
+            output.write(jpeg, 0, insertionOffset)
+            output.write(byteArrayOf(0xFF.toByte(), 0xE1.toByte()))
+            output.write(app1Length)
+            output.write(xmpHeader)
+            output.write(xmp)
+            output.write(jpeg, insertionOffset, jpeg.size - insertionOffset)
+            FileInputStream(motion).use { it.copyTo(output) }
+        }
+    }
+
+    /** Keeps JFIF/Exif APP segments immediately after SOI and inserts XMP after them. */
+    private fun jpegMetadataEnd(jpeg: ByteArray): Int {
+        var offset = 2
+        while (offset + 4 <= jpeg.size && jpeg[offset] == 0xFF.toByte()) {
+            val marker = jpeg[offset + 1].toInt() and 0xFF
+            if (marker !in 0xE0..0xEF) break
+            val segmentLength = ((jpeg[offset + 2].toInt() and 0xFF) shl 8) or
+                (jpeg[offset + 3].toInt() and 0xFF)
+            if (segmentLength < 2 || offset + 2 + segmentLength > jpeg.size) break
+            offset += 2 + segmentLength
+        }
+        return offset
     }
 
     private fun publishMedia(
@@ -241,15 +295,4 @@ class Media3ExportEngine(
         }
     }
 
-    private fun addFile(zip: ZipOutputStream, name: String, file: File) {
-        zip.putNextEntry(ZipEntry(name))
-        FileInputStream(file).use { it.copyTo(zip) }
-        zip.closeEntry()
-    }
-
-    private fun addBytes(zip: ZipOutputStream, name: String, data: ByteArray) {
-        zip.putNextEntry(ZipEntry(name))
-        zip.write(data)
-        zip.closeEntry()
-    }
 }

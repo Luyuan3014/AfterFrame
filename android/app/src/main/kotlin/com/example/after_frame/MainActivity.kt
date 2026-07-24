@@ -46,6 +46,18 @@ class MainActivity : FlutterActivity() {
                 )
             }
             "exportLive" -> exportEngine.export(call, result)
+            "shareMedia" -> {
+                try {
+                    exportEngine.share(
+                        Uri.parse(call.argument<String>("uri")!!),
+                        call.argument<String>("mimeType")!!,
+                        call.argument<String>("title") ?: "分享 AfterFrame",
+                    )
+                    result.success(null)
+                } catch (error: Exception) {
+                    result.error("SHARE_FAILED", error.message, null)
+                }
+            }
             "getAppLanguage" -> result.success(
                 getSharedPreferences("afterframe_settings", MODE_PRIVATE)
                     .getString("app_language", "zh"),
