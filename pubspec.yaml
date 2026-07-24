@@ -1,0 +1,19 @@
+name: after_frame
+description: "AfterFrame · 余帧 — 将视频里的珍贵瞬间转化为动态记忆。"
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.10.3
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
