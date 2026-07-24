@@ -14,12 +14,41 @@ class MediaEngine {
 
   static const _channel = MethodChannel('com.afterframe/media_engine');
 
-  Future<MediaAsset?> pickVideo() async {
+  Future<bool> requestVideoAccess() async {
     try {
-      final data = await _channel.invokeMapMethod<Object?, Object?>('pickVideo');
-      return data == null ? null : MediaAsset.fromMap(data);
+      return await _channel.invokeMethod<bool>('requestVideoAccess') ?? false;
     } on PlatformException catch (error) {
-      throw MediaEngineException(error.message ?? '无法读取视频');
+      throw MediaEngineException(error.message ?? '无法请求视频访问权限');
+    }
+  }
+
+  Future<List<MediaAsset>> listVideos() async {
+    try {
+      final data = await _channel.invokeListMethod<Object?>('listVideos') ?? const [];
+      return data
+          .cast<Map<Object?, Object?>>()
+          .map(MediaAsset.fromMap)
+          .toList(growable: false);
+    } on PlatformException catch (error) {
+      throw MediaEngineException(error.message ?? '无法读取视频媒体库');
+    }
+  }
+
+  Future<MediaAsset> inspectVideo(String uri) async {
+    try {
+      final data = await _channel.invokeMapMethod<Object?, Object?>('inspectVideo', {'uri': uri});
+      if (data == null) throw const MediaEngineException('无法读取视频信息');
+      return MediaAsset.fromMap(data);
+    } on PlatformException catch (error) {
+      throw MediaEngineException(error.message ?? '无法读取视频信息');
+    }
+  }
+
+  Future<String> videoThumbnail(String uri) async {
+    try {
+      return await _channel.invokeMethod<String>('videoThumbnail', {'uri': uri}) ?? '';
+    } on PlatformException catch (error) {
+      throw MediaEngineException(error.message ?? '无法生成视频缩略图');
     }
   }
 

@@ -6,6 +6,7 @@ import '../models/media_asset.dart';
 import '../services/media_engine.dart';
 import '../theme.dart';
 import 'studio_screen.dart';
+import 'video_picker_screen.dart';
 
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
@@ -20,14 +21,16 @@ class _HomeShellState extends State<HomeShell> {
   int _page = 0;
   bool _picking = false;
 
-  Future<void> _create() async {
+  Future<void> _create([int mode = 0]) async {
     if (_picking) return;
     setState(() => _picking = true);
     try {
-      final asset = await _engine.pickVideo();
+      final asset = await Navigator.of(context).push<MediaAsset>(
+        MaterialPageRoute(builder: (_) => VideoPickerScreen(engine: _engine, mode: mode)),
+      );
       if (!mounted || asset == null) return;
       final result = await Navigator.of(context).push<LiveExport>(
-        MaterialPageRoute(builder: (_) => StudioScreen(asset: asset, engine: _engine)),
+        MaterialPageRoute(builder: (_) => StudioScreen(asset: asset, engine: _engine, initialMode: mode)),
       );
       if (result != null && mounted) {
         setState(() {
@@ -55,7 +58,7 @@ class _HomeShellState extends State<HomeShell> {
           index: _page,
           children: [
             _Discover(onCreate: _create, loading: _picking),
-            _Works(exports: _exports, onCreate: _create),
+            _Works(exports: _exports, onCreate: () => _create()),
             const _Profile(),
           ],
         ),
@@ -75,7 +78,7 @@ class _HomeShellState extends State<HomeShell> {
 
 class _Discover extends StatelessWidget {
   const _Discover({required this.onCreate, required this.loading});
-  final VoidCallback onCreate;
+  final ValueChanged<int> onCreate;
   final bool loading;
 
   @override
@@ -103,7 +106,7 @@ class _Discover extends StatelessWidget {
         const SizedBox(height: 13),
         const Text('从一段视频里，拾起值得反复观看的瞬间。', style: TextStyle(color: AfterFrameColors.muted, fontSize: 15)),
         const SizedBox(height: 28),
-        _HeroCreate(onTap: onCreate, loading: loading),
+        _HeroCreate(onTap: () => onCreate(0), loading: loading),
         const SizedBox(height: 34),
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           Text('创作方式', style: Theme.of(context).textTheme.titleLarge),
@@ -111,9 +114,9 @@ class _Discover extends StatelessWidget {
         ]),
         const SizedBox(height: 14),
         Row(children: [
-          Expanded(child: _ModeCard(icon: Icons.motion_photos_on_rounded, color: AfterFrameColors.coral, title: 'Live 单帧', detail: '视频 · 封面 · 动态', onTap: onCreate)),
+          Expanded(child: _ModeCard(icon: Icons.motion_photos_on_rounded, color: AfterFrameColors.coral, title: 'Live 单帧', detail: '视频 · 封面 · 动态', onTap: () => onCreate(0))),
           const SizedBox(width: 12),
-          Expanded(child: _ModeCard(icon: Icons.grid_on_rounded, color: AfterFrameColors.violet, title: 'Live 拼图', detail: '多格 · 同步 · 叙事', onTap: onCreate)),
+          Expanded(child: _ModeCard(icon: Icons.grid_on_rounded, color: AfterFrameColors.violet, title: 'Live 拼图', detail: '多格 · 同步 · 叙事', onTap: () => onCreate(1))),
         ]),
         const SizedBox(height: 12),
         const _TipCard(),

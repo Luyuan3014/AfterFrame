@@ -1,91 +1,141 @@
 package com.example.after_frame
 
-import android.app.Activity
-import android.content.Intent
-import android.media.MediaCodec
-import android.media.MediaExtractor
-import android.media.MediaFormat
+import android.Manifest
+import android.content.pm.PackageManager
 import android.media.MediaMetadataRetriever
-import android.media.MediaMuxer
 import android.net.Uri
-import android.os.Environment
-import android.provider.OpenableColumns
+import android.os.Build
+import android.provider.MediaStore
+import android.util.Size
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
-import org.json.JSONObject
 import java.io.File
-import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.nio.ByteBuffer
-import java.util.UUID
 import java.util.concurrent.Executors
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
 
 class MainActivity : FlutterActivity() {
     private val channelName = "com.afterframe/media_engine"
-    private val pickVideoRequest = 4107
+    private val permissionRequest = 4108
     private val executor = Executors.newSingleThreadExecutor()
-    private var pendingPick: MethodChannel.Result? = null
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != pickVideoRequest) return
-        val result = pendingPick
-        pendingPick = null
-        if (resultCode != Activity.RESULT_OK || data?.data == null) {
-            result?.success(null)
-            return
-        }
-        val uri = data.data!!
-        try {
-            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        } catch (_: SecurityException) {
-            // Some gallery providers only grant access for the current process.
-        }
-        executor.execute {
-            try {
-                val metadata = inspect(uri)
-                runOnUiThread { result?.success(metadata) }
-            } catch (error: Exception) {
-                runOnUiThread { result?.error("VIDEO_READ_FAILED", error.message, null) }
-            }
-        }
-    }
+    private var pendingPermission: MethodChannel.Result? = null
+    private lateinit var exportEngine: Media3ExportEngine
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        exportEngine = Media3ExportEngine(this, executor)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result -> handle(call, result) }
     }
 
     private fun handle(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
-            "pickVideo" -> pickVideo(result)
-            "extractFrame" -> background(result) {
-                val uri = Uri.parse(call.argument<String>("uri")!!)
-                val timeMs = call.argument<Number>("timeMs")!!.toLong()
-                extractFrame(uri, timeMs)
+            "requestVideoAccess" -> requestVideoAccess(result)
+            "listVideos" -> background(result) { listVideos() }
+            "inspectVideo" -> background(result) { inspect(Uri.parse(call.argument<String>("uri")!!)) }
+            "videoThumbnail" -> background(result) {
+                thumbnail(Uri.parse(call.argument<String>("uri")!!))
             }
-            "exportLive" -> background(result) { exportLive(call) }
+            "extractFrame" -> background(result) {
+                extractFrame(
+                    Uri.parse(call.argument<String>("uri")!!),
+                    call.argument<Number>("timeMs")!!.toLong(),
+                )
+            }
+            "exportLive" -> exportEngine.export(call, result)
             else -> result.notImplemented()
         }
     }
 
-    private fun pickVideo(result: MethodChannel.Result) {
-        if (pendingPick != null) {
-            result.error("PICK_IN_PROGRESS", "已有一个视频选择窗口", null)
+    private fun requestVideoAccess(result: MethodChannel.Result) {
+        if (hasVideoAccess()) {
+            result.success(true)
             return
         }
-        pendingPick = result
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "video/*"
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+        if (pendingPermission != null) {
+            result.error("PERMISSION_IN_PROGRESS", "正在请求视频访问权限", null)
+            return
         }
-        startActivityForResult(intent, pickVideoRequest)
+        pendingPermission = result
+        ActivityCompat.requestPermissions(this, videoPermissions(), permissionRequest)
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != permissionRequest) return
+        pendingPermission?.success(hasVideoAccess())
+        pendingPermission = null
+    }
+
+    private fun videoPermissions(): Array<String> = when {
+        Build.VERSION.SDK_INT >= 34 -> arrayOf(
+            Manifest.permission.READ_MEDIA_VIDEO,
+            Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+        )
+        Build.VERSION.SDK_INT >= 33 -> arrayOf(Manifest.permission.READ_MEDIA_VIDEO)
+        else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+    }
+
+    private fun hasVideoAccess(): Boolean {
+        if (Build.VERSION.SDK_INT >= 34 && ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+            ) == PackageManager.PERMISSION_GRANTED
+        ) return true
+        return videoPermissions().any {
+            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    private fun listVideos(): List<Map<String, Any>> {
+        if (!hasVideoAccess()) throw SecurityException("需要视频访问权限才能显示媒体库")
+        val collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+        val projection = arrayOf(
+            MediaStore.Video.Media._ID,
+            MediaStore.Video.Media.DISPLAY_NAME,
+            MediaStore.Video.Media.DURATION,
+            MediaStore.Video.Media.WIDTH,
+            MediaStore.Video.Media.HEIGHT,
+            MediaStore.Video.Media.SIZE,
+            MediaStore.Video.Media.DATE_ADDED,
+        )
+        val videos = mutableListOf<Map<String, Any>>()
+        contentResolver.query(
+            collection,
+            projection,
+            "${MediaStore.Video.Media.DURATION} > 0",
+            null,
+            "${MediaStore.Video.Media.DATE_ADDED} DESC",
+        )?.use { cursor ->
+            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
+            val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
+            val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
+            val widthColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.WIDTH)
+            val heightColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.HEIGHT)
+            val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
+            val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_ADDED)
+            while (cursor.moveToNext()) {
+                val uri = Uri.withAppendedPath(collection, cursor.getLong(idColumn).toString())
+                videos += mapOf(
+                    "uri" to uri.toString(),
+                    "name" to cursor.getString(nameColumn),
+                    "durationMs" to cursor.getLong(durationColumn),
+                    "width" to cursor.getInt(widthColumn),
+                    "height" to cursor.getInt(heightColumn),
+                    "rotation" to 0,
+                    "sizeBytes" to cursor.getLong(sizeColumn),
+                    "dateAdded" to cursor.getLong(dateColumn),
+                )
+            }
+        }
+        return videos
     }
 
     private fun inspect(uri: Uri): Map<String, Any> {
@@ -94,7 +144,13 @@ class MainActivity : FlutterActivity() {
             retriever.setDataSource(this, uri)
             mapOf(
                 "uri" to uri.toString(),
-                "name" to displayName(uri),
+                "name" to (contentResolver.query(
+                    uri,
+                    arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
+                    null,
+                    null,
+                    null,
+                )?.use { if (it.moveToFirst()) it.getString(0) else null } ?: "memory.mp4"),
                 "durationMs" to metadataLong(retriever, MediaMetadataRetriever.METADATA_KEY_DURATION),
                 "width" to metadataLong(retriever, MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH).toInt(),
                 "height" to metadataLong(retriever, MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT).toInt(),
@@ -105,25 +161,39 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun metadataLong(retriever: MediaMetadataRetriever, key: Int): Long =
-        retriever.extractMetadata(key)?.toLongOrNull() ?: 0L
-
-    private fun displayName(uri: Uri): String {
-        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) return cursor.getString(0)
-        }
-        return "memory.mp4"
+    private fun thumbnail(uri: Uri): String {
+        val directory = File(cacheDir, "afterframe/thumbnails").apply { mkdirs() }
+        val file = File(directory, "${uri.hashCode()}.jpg")
+        if (file.exists() && file.length() > 0) return file.absolutePath
+        val bitmap = if (Build.VERSION.SDK_INT >= 29) {
+            contentResolver.loadThumbnail(uri, Size(512, 512), null)
+        } else {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(this, uri)
+                retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            } finally {
+                retriever.release()
+            }
+        } ?: throw IllegalStateException("无法生成视频缩略图")
+        FileOutputStream(file).use { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 86, it) }
+        bitmap.recycle()
+        return file.absolutePath
     }
 
     private fun extractFrame(uri: Uri, timeMs: Long): String {
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(this, uri)
-            val bitmap = retriever.getFrameAtTime(timeMs * 1000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                ?: throw IllegalStateException("无法提取 $timeMs ms 的画面")
+            val bitmap = retriever.getFrameAtTime(
+                timeMs * 1000,
+                MediaMetadataRetriever.OPTION_CLOSEST,
+            ) ?: throw IllegalStateException("无法提取 ${timeMs}ms 的画面")
             val directory = File(cacheDir, "afterframe/frames").apply { mkdirs() }
-            val file = File(directory, "${uri.toString().hashCode()}_${timeMs}.jpg")
-            FileOutputStream(file).use { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it) }
+            val file = File(directory, "${uri.hashCode()}_$timeMs.jpg")
+            FileOutputStream(file).use {
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, it)
+            }
             bitmap.recycle()
             file.absolutePath
         } finally {
@@ -131,112 +201,8 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun exportLive(call: MethodCall): String {
-        val uri = Uri.parse(call.argument<String>("uri")!!)
-        val startMs = call.argument<Number>("startMs")!!.toLong()
-        val endMs = call.argument<Number>("endMs")!!.toLong()
-        val coverMs = call.argument<Number>("coverMs")!!.toLong()
-        val keepAudio = call.argument<Boolean>("keepAudio") ?: true
-        val loop = call.argument<Boolean>("loop") ?: false
-        val cover = File(call.argument<String>("coverPath")!!)
-        val safeName = (call.argument<String>("name") ?: "memory")
-            .substringBeforeLast('.').replace(Regex("[^a-zA-Z0-9_\\-\\u4e00-\\u9fa5]"), "_")
-            .take(40)
-        val work = File(cacheDir, "afterframe/export/${UUID.randomUUID()}").apply { mkdirs() }
-        val motion = File(work, "motion.mp4")
-        trim(uri, motion, startMs * 1000, endMs * 1000, keepAudio)
-
-        val manifest = JSONObject().apply {
-            put("format", "com.afterframe.live")
-            put("version", 1)
-            put("createdAt", System.currentTimeMillis())
-            put("sourceName", call.argument<String>("name"))
-            put("durationMs", endMs - startMs)
-            put("coverTimeMs", coverMs - startMs)
-            put("keepAudio", keepAudio)
-            put("loop", loop)
-            put("width", call.argument<Number>("width")?.toInt() ?: 0)
-            put("height", call.argument<Number>("height")?.toInt() ?: 0)
-            put("cover", "cover.jpg")
-            put("motion", "motion.mp4")
-        }
-        val outputDirectory = File(getExternalFilesDir(Environment.DIRECTORY_MOVIES), "AfterFrame").apply { mkdirs() }
-        val output = File(outputDirectory, "${safeName}_${System.currentTimeMillis()}.live")
-        ZipOutputStream(FileOutputStream(output)).use { zip ->
-            addBytes(zip, "manifest.json", manifest.toString(2).toByteArray(Charsets.UTF_8))
-            addFile(zip, "cover.jpg", cover)
-            addFile(zip, "motion.mp4", motion)
-        }
-        work.deleteRecursively()
-        return output.absolutePath
-    }
-
-    private fun trim(uri: Uri, output: File, startUs: Long, endUs: Long, keepAudio: Boolean) {
-        val extractor = MediaExtractor()
-        val descriptor = contentResolver.openAssetFileDescriptor(uri, "r")
-            ?: throw IllegalStateException("无法打开视频")
-        descriptor.use { afd ->
-            extractor.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-            val muxer = MediaMuxer(output.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-            val trackMap = mutableMapOf<Int, Int>()
-            try {
-                for (index in 0 until extractor.trackCount) {
-                    val format = extractor.getTrackFormat(index)
-                    val mime = format.getString(MediaFormat.KEY_MIME) ?: continue
-                    if (mime.startsWith("video/") || (keepAudio && mime.startsWith("audio/"))) {
-                        extractor.selectTrack(index)
-                        trackMap[index] = muxer.addTrack(format)
-                    }
-                }
-                if (trackMap.isEmpty()) throw IllegalStateException("视频中没有可用轨道")
-                readRotation(uri)?.let { muxer.setOrientationHint(it) }
-                muxer.start()
-                extractor.seekTo(startUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
-                val buffer = ByteBuffer.allocate(4 * 1024 * 1024)
-                val info = MediaCodec.BufferInfo()
-                var firstSampleUs = -1L
-                while (true) {
-                    val sampleTime = extractor.sampleTime
-                    if (sampleTime < 0 || sampleTime > endUs) break
-                    val inputTrack = extractor.sampleTrackIndex
-                    val outputTrack = trackMap[inputTrack]
-                    if (outputTrack != null) {
-                        buffer.clear()
-                        val size = extractor.readSampleData(buffer, 0)
-                        if (size < 0) break
-                        if (firstSampleUs < 0) firstSampleUs = sampleTime
-                        info.set(0, size, sampleTime - firstSampleUs, extractor.sampleFlags)
-                        muxer.writeSampleData(outputTrack, buffer, info)
-                    }
-                    if (!extractor.advance()) break
-                }
-            } finally {
-                try { muxer.stop() } catch (_: Exception) { }
-                muxer.release()
-                extractor.release()
-            }
-        }
-    }
-
-    private fun readRotation(uri: Uri): Int? {
-        val retriever = MediaMetadataRetriever()
-        return try {
-            retriever.setDataSource(this, uri)
-            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull()
-        } finally { retriever.release() }
-    }
-
-    private fun addFile(zip: ZipOutputStream, name: String, file: File) {
-        zip.putNextEntry(ZipEntry(name))
-        FileInputStream(file).use { it.copyTo(zip) }
-        zip.closeEntry()
-    }
-
-    private fun addBytes(zip: ZipOutputStream, name: String, data: ByteArray) {
-        zip.putNextEntry(ZipEntry(name))
-        zip.write(data)
-        zip.closeEntry()
-    }
+    private fun metadataLong(retriever: MediaMetadataRetriever, key: Int): Long =
+        retriever.extractMetadata(key)?.toLongOrNull() ?: 0L
 
     private fun background(result: MethodChannel.Result, operation: () -> Any) {
         executor.execute {
@@ -244,12 +210,15 @@ class MainActivity : FlutterActivity() {
                 val value = operation()
                 runOnUiThread { result.success(value) }
             } catch (error: Exception) {
-                runOnUiThread { result.error("MEDIA_ENGINE_FAILED", error.message ?: error.javaClass.simpleName, null) }
+                runOnUiThread {
+                    result.error("MEDIA_ENGINE_FAILED", error.message ?: error.javaClass.simpleName, null)
+                }
             }
         }
     }
 
     override fun onDestroy() {
+        if (::exportEngine.isInitialized) exportEngine.cancel()
         executor.shutdown()
         super.onDestroy()
     }

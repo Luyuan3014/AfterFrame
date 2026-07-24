@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
@@ -8,9 +7,10 @@ import '../services/media_engine.dart';
 import '../theme.dart';
 
 class StudioScreen extends StatefulWidget {
-  const StudioScreen({super.key, required this.asset, required this.engine});
+  const StudioScreen({super.key, required this.asset, required this.engine, this.initialMode = 0});
   final MediaAsset asset;
   final MediaEngine engine;
+  final int initialMode;
 
   @override
   State<StudioScreen> createState() => _StudioScreenState();
@@ -25,11 +25,12 @@ class _StudioScreenState extends State<StudioScreen> {
   late int _endMs;
   bool _keepAudio = true;
   bool _loop = false;
-  int _mode = 0;
+  late int _mode;
 
   @override
   void initState() {
     super.initState();
+    _mode = widget.initialMode;
     _endMs = widget.asset.durationMs.clamp(1, 6000).toInt();
     _coverMs = _endMs ~/ 2;
     _loadFrames();
