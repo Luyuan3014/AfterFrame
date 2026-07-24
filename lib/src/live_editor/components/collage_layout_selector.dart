@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/media_asset.dart';
 import '../../theme.dart';
+import '../../localization/app_localizations.dart';
 import '../live_editor_scope.dart';
 
 class CollageLayoutSelector extends StatefulWidget {
@@ -19,10 +20,14 @@ class _CollageLayoutSelectorState extends State<CollageLayoutSelector> {
   @override
   Widget build(BuildContext context) {
     final frames = LiveEditorScope.of(context).frames;
+    final l10n = context.l10n;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('选择拼图布局', style: TextStyle(fontWeight: FontWeight.w700)),
+        Text(
+          l10n.text('chooseLayout'),
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
         const SizedBox(height: 10),
         Row(
           children: [
@@ -53,9 +58,9 @@ class _CollageLayoutSelectorState extends State<CollageLayoutSelector> {
           ],
         ),
         const SizedBox(height: 9),
-        const Text(
-          '当前 MVP 使用同一视频的不同时间切片；多视频同步将在下一阶段开放。',
-          style: TextStyle(fontSize: 10, color: AfterFrameColors.muted),
+        Text(
+          l10n.text('collageMvp'),
+          style: const TextStyle(fontSize: 10, color: AfterFrameColors.muted),
         ),
       ],
     );

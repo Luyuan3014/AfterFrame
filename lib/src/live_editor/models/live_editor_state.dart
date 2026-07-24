@@ -13,6 +13,10 @@ enum CreationMode {
 
 enum GenerateStatus { idle, processing, success, failed }
 
+enum CoverSelectionMode { aiRecommended, manual }
+
+enum CoverInsight { bestLight, sharpest, bestComposition }
+
 /// Single source of truth for the Live creation workspace.
 ///
 /// Fields reserved for later phases (AI moments, templates and effects) should
@@ -23,6 +27,7 @@ class LiveEditorState extends ChangeNotifier {
     required this.mode,
     this.audioEnabled = true,
     this.loopEnabled = false,
+    this.enhancementEnabled = true,
   }) : _asset = asset,
        videoPath = asset.uri,
        duration = asset.durationMs,
@@ -42,6 +47,9 @@ class LiveEditorState extends ChangeNotifier {
   CreationMode mode;
   bool audioEnabled;
   bool loopEnabled;
+  bool enhancementEnabled;
+  CoverSelectionMode coverSelectionMode = CoverSelectionMode.aiRecommended;
+  CoverInsight selectedInsight = CoverInsight.bestLight;
 
   /// UI-level extension point. Phase one deliberately does not pass speed to
   /// the native export engine, so video processing behavior remains unchanged.
@@ -62,6 +70,13 @@ class LiveEditorState extends ChangeNotifier {
 
   bool get isProcessing => generateStatus == GenerateStatus.processing;
 
+  int get liveLength => endTime - startTime;
+
+  int get bestMomentTime {
+    if (frames.isEmpty) return coverFrame;
+    return frames[_suggestedFrameIndex(CoverInsight.bestLight)].timeMs;
+  }
+
   void replaceAsset(int index, MediaAsset value) {
     activeAssetIndex = index;
     _asset = value;
@@ -73,12 +88,18 @@ class LiveEditorState extends ChangeNotifier {
     currentPosition = coverFrame;
     frames = const [];
     isLoading = true;
+    coverSelectionMode = CoverSelectionMode.aiRecommended;
+    selectedInsight = CoverInsight.bestLight;
     generateStatus = GenerateStatus.idle;
     notifyListeners();
   }
 
   void setFrames(List<FrameSample> value) {
     frames = List.unmodifiable(value);
+    if (coverSelectionMode == CoverSelectionMode.aiRecommended &&
+        frames.isNotEmpty) {
+      _applyInsight(selectedInsight, notify: false);
+    }
     notifyListeners();
   }
 
@@ -93,12 +114,51 @@ class LiveEditorState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setCoverFrame(int value) {
+  void setCoverFrame(int value, {bool manual = true}) {
     final next = value.clamp(startTime, endTime).toInt();
-    if (coverFrame == next) return;
+    if (coverFrame == next &&
+        (!manual || coverSelectionMode == CoverSelectionMode.manual)) {
+      return;
+    }
     coverFrame = next;
     currentPosition = next;
+    if (manual) coverSelectionMode = CoverSelectionMode.manual;
     notifyListeners();
+  }
+
+  void setCoverSelectionMode(CoverSelectionMode value) {
+    if (coverSelectionMode == value) return;
+    coverSelectionMode = value;
+    if (value == CoverSelectionMode.aiRecommended) {
+      _applyInsight(selectedInsight, notify: false);
+    }
+    notifyListeners();
+  }
+
+  void applyCoverInsight(CoverInsight value) {
+    selectedInsight = value;
+    coverSelectionMode = CoverSelectionMode.aiRecommended;
+    _applyInsight(value, notify: false);
+    notifyListeners();
+  }
+
+  void _applyInsight(CoverInsight value, {required bool notify}) {
+    if (frames.isNotEmpty) {
+      final frame = frames[_suggestedFrameIndex(value)];
+      coverFrame = frame.timeMs.clamp(startTime, endTime).toInt();
+      currentPosition = coverFrame;
+    }
+    if (notify) notifyListeners();
+  }
+
+  int _suggestedFrameIndex(CoverInsight value) {
+    if (frames.length <= 1) return 0;
+    final ratio = switch (value) {
+      CoverInsight.bestLight => .625,
+      CoverInsight.sharpest => .5,
+      CoverInsight.bestComposition => .375,
+    };
+    return ((frames.length - 1) * ratio).round();
   }
 
   void setTimeline(int start, int end) {
@@ -110,6 +170,13 @@ class LiveEditorState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setCurrentPosition(int value) {
+    final next = value.clamp(startTime, endTime).toInt();
+    if (currentPosition == next) return;
+    currentPosition = next;
+    notifyListeners();
+  }
+
   void toggleAudio() {
     audioEnabled = !audioEnabled;
     notifyListeners();
@@ -117,6 +184,11 @@ class LiveEditorState extends ChangeNotifier {
 
   void toggleLoop() {
     loopEnabled = !loopEnabled;
+    notifyListeners();
+  }
+
+  void toggleEnhancement() {
+    enhancementEnabled = !enhancementEnabled;
     notifyListeners();
   }
 

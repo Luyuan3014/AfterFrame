@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import 'src/app.dart';
+import 'src/localization/app_localizations.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const AfterFrameApp());
+  final language = await AppLanguageController.load();
+  runApp(AfterFrameApp(initialLanguage: language));
 }

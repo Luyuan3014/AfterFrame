@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../models/media_asset.dart';
 import '../services/media_engine.dart';
 import '../theme.dart';
+import '../localization/app_localizations.dart';
 
 class VideoPickerScreen extends StatefulWidget {
   const VideoPickerScreen({
@@ -63,7 +64,7 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
         });
       }
     } catch (error) {
-      if (mounted) _message(error);
+      if (mounted) _message('errorLibrary');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -91,7 +92,7 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
       }
       if (mounted) Navigator.pop(context, assets);
     } catch (error) {
-      if (mounted) _message(error);
+      if (mounted) _message('errorInspect');
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -108,48 +109,51 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
     return false;
   }
 
-  void _message(Object error) => ScaffoldMessenger.of(context).showSnackBar(
+  void _message(String key) => ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
-      content: Text(error.toString()),
+      content: Text(context.l10n.text(key)),
       behavior: SnackBarBehavior.floating,
     ),
   );
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      titleSpacing: 4,
-      title: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            widget.mode == 1 ? '选择拼图视频' : '选择视频',
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-          ),
-          Text(
-            _selectedUris.isEmpty
-                ? '按选择顺序添加，可多选'
-                : '已选择 ${_selectedUris.length} 段视频',
-            style: TextStyle(
-              fontSize: 11,
-              color: _selectedUris.isEmpty
-                  ? AfterFrameColors.muted
-                  : AfterFrameColors.lime,
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return Scaffold(
+      appBar: AppBar(
+        titleSpacing: 4,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              l10n.text(widget.mode == 1 ? 'pickCollageVideos' : 'pickVideo'),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
             ),
-          ),
-        ],
+            Text(
+              _selectedUris.isEmpty
+                  ? l10n.text('pickHint')
+                  : l10n.text('selectedCount', {'count': _selectedUris.length}),
+              style: TextStyle(
+                fontSize: 11,
+                color: _selectedUris.isEmpty
+                    ? AfterFrameColors.muted
+                    : AfterFrameColors.lime,
+              ),
+            ),
+          ],
+        ),
       ),
-    ),
-    body: _body(),
-    bottomNavigationBar: _selectedUris.isEmpty
-        ? null
-        : _SelectionBar(
-            count: _selectedUris.length,
-            mode: widget.mode,
-            loading: _submitting,
-            onSubmit: _submit,
-          ),
-  );
+      body: _body(),
+      bottomNavigationBar: _selectedUris.isEmpty
+          ? null
+          : _SelectionBar(
+              count: _selectedUris.length,
+              mode: widget.mode,
+              loading: _submitting,
+              onSubmit: _submit,
+            ),
+    );
+  }
 
   Widget _body() {
     if (_loading) {
@@ -159,20 +163,24 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
     }
     if (_denied) return _PermissionEmpty(onRetry: _load);
     if (_videos.isEmpty) {
-      return const Center(
+      return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.video_library_outlined, size: 72, color: Colors.white24),
-            SizedBox(height: 16),
-            Text(
-              '媒体库里还没有视频',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+            const Icon(
+              Icons.video_library_outlined,
+              size: 72,
+              color: Colors.white24,
             ),
-            SizedBox(height: 6),
+            const SizedBox(height: 16),
             Text(
-              '拍摄或保存视频后，它会出现在这里',
-              style: TextStyle(color: AfterFrameColors.muted),
+              context.l10n.text('libraryEmpty'),
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              context.l10n.text('libraryEmptyHint'),
+              style: const TextStyle(color: AfterFrameColors.muted),
             ),
           ],
         ),
@@ -358,86 +366,99 @@ class _SelectionBar extends StatelessWidget {
   final VoidCallback onSubmit;
 
   @override
-  Widget build(BuildContext context) => SafeArea(
-    top: false,
-    child: Container(
-      padding: const EdgeInsets.fromLTRB(18, 11, 18, 11),
-      decoration: const BoxDecoration(
-        color: AfterFrameColors.panel,
-        border: Border(top: BorderSide(color: Colors.white10)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              '已按顺序选择 $count 段',
-              style: const TextStyle(fontWeight: FontWeight.w700),
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(18, 11, 18, 11),
+        decoration: const BoxDecoration(
+          color: AfterFrameColors.panel,
+          border: Border(top: BorderSide(color: Colors.white10)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                l10n.text('selectedInOrder', {'count': count}),
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
             ),
-          ),
-          FilledButton(
-            onPressed: loading ? null : onSubmit,
-            style: FilledButton.styleFrom(
-              minimumSize: const Size(116, 48),
-              padding: const EdgeInsets.symmetric(horizontal: 22),
-            ),
-            child: loading
-                ? const SizedBox.square(
-                    dimension: 19,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.black,
+            FilledButton(
+              onPressed: loading ? null : onSubmit,
+              style: FilledButton.styleFrom(
+                minimumSize: const Size(116, 48),
+                padding: const EdgeInsets.symmetric(horizontal: 22),
+              ),
+              child: loading
+                  ? const SizedBox.square(
+                      dimension: 19,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.black,
+                      ),
+                    )
+                  : Text(
+                      l10n.text(mode == 1 ? 'addCount' : 'doneCount', {
+                        'count': count,
+                      }),
                     ),
-                  )
-                : Text(mode == 1 ? '添加 ($count)' : '完成 ($count)'),
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _PermissionEmpty extends StatelessWidget {
   const _PermissionEmpty({required this.onRetry});
   final VoidCallback onRetry;
   @override
-  Widget build(BuildContext context) => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 76,
-            height: 76,
-            decoration: BoxDecoration(
-              color: AfterFrameColors.lime.withValues(alpha: .12),
-              shape: BoxShape.circle,
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 76,
+              height: 76,
+              decoration: BoxDecoration(
+                color: AfterFrameColors.lime.withValues(alpha: .12),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.video_library_rounded,
+                color: AfterFrameColors.lime,
+                size: 36,
+              ),
             ),
-            child: const Icon(
-              Icons.video_library_rounded,
-              color: AfterFrameColors.lime,
-              size: 36,
+            const SizedBox(height: 20),
+            Text(
+              l10n.text('allowVideos'),
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
             ),
-          ),
-          const SizedBox(height: 20),
-          const Text(
-            '允许访问你的视频',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'AfterFrame 只读取你选择用于创作的视频，不会上传媒体库内容。',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: AfterFrameColors.muted, height: 1.5),
-          ),
-          const SizedBox(height: 24),
-          FilledButton.icon(
-            onPressed: onRetry,
-            icon: const Icon(Icons.lock_open_rounded),
-            label: const Text('继续授权'),
-          ),
-        ],
+            const SizedBox(height: 8),
+            Text(
+              l10n.text('permissionDetail'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AfterFrameColors.muted,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.lock_open_rounded),
+              label: Text(l10n.text('continuePermission')),
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }

@@ -6,6 +6,7 @@ import '../models/media_asset.dart';
 import '../services/media_engine.dart';
 import '../theme.dart';
 import '../live_editor/live_editor_page.dart';
+import '../localization/app_localizations.dart';
 import 'video_picker_screen.dart';
 
 class HomeShell extends StatefulWidget {
@@ -55,13 +56,14 @@ class _HomeShellState extends State<HomeShell> {
 
   void _showError(Object error) => ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
-      content: Text(error.toString()),
+      content: Text(context.l10n.text('errorGeneric')),
       behavior: SnackBarBehavior.floating,
     ),
   );
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Scaffold(
       body: SafeArea(
         bottom: false,
@@ -77,21 +79,21 @@ class _HomeShellState extends State<HomeShell> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _page,
         onDestinationSelected: (value) => setState(() => _page = value),
-        destinations: const [
+        destinations: [
           NavigationDestination(
-            icon: Icon(Icons.auto_awesome_outlined),
-            selectedIcon: Icon(Icons.auto_awesome),
-            label: '创作',
+            icon: const Icon(Icons.auto_awesome_outlined),
+            selectedIcon: const Icon(Icons.auto_awesome),
+            label: l10n.text('navCreate'),
           ),
           NavigationDestination(
-            icon: Icon(Icons.grid_view_outlined),
-            selectedIcon: Icon(Icons.grid_view_rounded),
-            label: '余帧',
+            icon: const Icon(Icons.grid_view_outlined),
+            selectedIcon: const Icon(Icons.grid_view_rounded),
+            label: l10n.text('navWorks'),
           ),
           NavigationDestination(
-            icon: Icon(Icons.person_outline_rounded),
-            selectedIcon: Icon(Icons.person_rounded),
-            label: '我的',
+            icon: const Icon(Icons.person_outline_rounded),
+            selectedIcon: const Icon(Icons.person_rounded),
+            label: l10n.text('navProfile'),
           ),
         ],
       ),
@@ -106,6 +108,7 @@ class _Discover extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
       children: [
@@ -124,10 +127,10 @@ class _Discover extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 11),
-            const Column(
+            Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                const Text(
                   'AFTERFRAME',
                   style: TextStyle(
                     fontSize: 14,
@@ -136,8 +139,8 @@ class _Discover extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '余帧',
-                  style: TextStyle(
+                  l10n.text('brandCn'),
+                  style: const TextStyle(
                     fontSize: 11,
                     color: AfterFrameColors.muted,
                     letterSpacing: 3,
@@ -154,13 +157,13 @@ class _Discover extends StatelessWidget {
         ),
         const SizedBox(height: 38),
         Text(
-          '让过去的某一帧，\n重新发生。',
+          l10n.text('heroTitle'),
           style: Theme.of(context).textTheme.displaySmall,
         ),
         const SizedBox(height: 13),
-        const Text(
-          '从一段视频里，拾起值得反复观看的瞬间。',
-          style: TextStyle(color: AfterFrameColors.muted, fontSize: 15),
+        Text(
+          l10n.text('heroSubtitle'),
+          style: const TextStyle(color: AfterFrameColors.muted, fontSize: 15),
         ),
         const SizedBox(height: 28),
         _HeroCreate(onTap: () => onCreate(0), loading: loading),
@@ -168,10 +171,16 @@ class _Discover extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('创作方式', style: Theme.of(context).textTheme.titleLarge),
-            const Text(
-              '把一刻，做成作品',
-              style: TextStyle(color: AfterFrameColors.muted, fontSize: 12),
+            Text(
+              l10n.text('createWays'),
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            Text(
+              l10n.text('createWaysHint'),
+              style: const TextStyle(
+                color: AfterFrameColors.muted,
+                fontSize: 12,
+              ),
             ),
           ],
         ),
@@ -182,8 +191,8 @@ class _Discover extends StatelessWidget {
               child: _ModeCard(
                 icon: Icons.motion_photos_on_rounded,
                 color: AfterFrameColors.coral,
-                title: 'Live 单帧',
-                detail: '视频 · 封面 · 动态',
+                title: l10n.text('liveFrame'),
+                detail: l10n.text('liveFrameDetail'),
                 onTap: () => onCreate(0),
               ),
             ),
@@ -192,8 +201,8 @@ class _Discover extends StatelessWidget {
               child: _ModeCard(
                 icon: Icons.grid_on_rounded,
                 color: AfterFrameColors.violet,
-                title: 'Live 拼图',
-                detail: '多格 · 同步 · 叙事',
+                title: l10n.text('motionCollage'),
+                detail: l10n.text('motionCollageDetail'),
                 onTap: () => onCreate(1),
               ),
             ),
@@ -213,6 +222,7 @@ class _HeroCreate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Material(
       color: AfterFrameColors.paper,
       borderRadius: BorderRadius.circular(30),
@@ -253,9 +263,9 @@ class _HeroCreate extends StatelessWidget {
                       color: Colors.black,
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: const Text(
-                      'NEW MEMORY',
-                      style: TextStyle(
+                    child: Text(
+                      l10n.text('newMemory'),
+                      style: const TextStyle(
                         fontSize: 10,
                         letterSpacing: 1.3,
                         fontWeight: FontWeight.w800,
@@ -263,9 +273,9 @@ class _HeroCreate extends StatelessWidget {
                     ),
                   ),
                   const Spacer(),
-                  const Text(
-                    '从视频开始',
-                    style: TextStyle(
+                  Text(
+                    l10n.text('startFromVideo'),
+                    style: const TextStyle(
                       color: Colors.black,
                       fontSize: 28,
                       fontWeight: FontWeight.w800,
@@ -273,9 +283,9 @@ class _HeroCreate extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 5),
-                  const Text(
-                    '选择一段视频，捕捉你的动态记忆',
-                    style: TextStyle(color: Color(0xFF555A54)),
+                  Text(
+                    l10n.text('startFromVideoDetail'),
+                    style: const TextStyle(color: Color(0xFF555A54)),
                   ),
                   const SizedBox(height: 17),
                   Row(
@@ -301,9 +311,9 @@ class _HeroCreate extends StatelessWidget {
                               ),
                       ),
                       const SizedBox(width: 12),
-                      const Text(
-                        '导入视频',
-                        style: TextStyle(
+                      Text(
+                        l10n.text('importVideo'),
+                        style: const TextStyle(
                           color: Colors.black,
                           fontWeight: FontWeight.w800,
                         ),
@@ -373,38 +383,47 @@ class _ModeCard extends StatelessWidget {
 class _TipCard extends StatelessWidget {
   const _TipCard();
   @override
-  Widget build(BuildContext context) => Card(
-    color: const Color(0xFF20231C),
-    child: Padding(
-      padding: const EdgeInsets.all(18),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.lightbulb_outline_rounded,
-            color: AfterFrameColors.lime,
-          ),
-          const SizedBox(width: 14),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('余帧提示', style: TextStyle(fontWeight: FontWeight.w700)),
-                SizedBox(height: 3),
-                Text(
-                  '2～6 秒的片段，最适合做成动态记忆。',
-                  style: TextStyle(color: AfterFrameColors.muted, fontSize: 12),
-                ),
-              ],
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return Card(
+      color: const Color(0xFF20231C),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.lightbulb_outline_rounded,
+              color: AfterFrameColors.lime,
             ),
-          ),
-          Icon(
-            Icons.chevron_right_rounded,
-            color: Colors.white.withValues(alpha: .5),
-          ),
-        ],
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    l10n.text('tipTitle'),
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    l10n.text('tipBody'),
+                    style: const TextStyle(
+                      color: AfterFrameColors.muted,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: Colors.white.withValues(alpha: .5),
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _Works extends StatelessWidget {
@@ -413,162 +432,269 @@ class _Works extends StatelessWidget {
   final VoidCallback onCreate;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('我的余帧', style: Theme.of(context).textTheme.headlineMedium),
-        const SizedBox(height: 5),
-        Text(
-          '${exports.length} 个动态记忆',
-          style: const TextStyle(color: AfterFrameColors.muted),
-        ),
-        const SizedBox(height: 22),
-        Expanded(
-          child: exports.isEmpty
-              ? _EmptyWorks(onCreate: onCreate)
-              : GridView.builder(
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    childAspectRatio: .76,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            l10n.text('myWorks'),
+            style: Theme.of(context).textTheme.headlineMedium,
+          ),
+          const SizedBox(height: 5),
+          Text(
+            l10n.text('workCount', {'count': exports.length}),
+            style: const TextStyle(color: AfterFrameColors.muted),
+          ),
+          const SizedBox(height: 22),
+          Expanded(
+            child: exports.isEmpty
+                ? _EmptyWorks(onCreate: onCreate)
+                : GridView.builder(
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          childAspectRatio: .76,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                        ),
+                    itemCount: exports.length,
+                    itemBuilder: (_, index) {
+                      final item = exports[index];
+                      return ClipRRect(
+                        borderRadius: BorderRadius.circular(22),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Image.file(
+                              File(item.coverPath),
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) =>
+                                  Container(color: AfterFrameColors.panelSoft),
+                            ),
+                            const DecoratedBox(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [Colors.transparent, Colors.black87],
+                                  begin: Alignment.center,
+                                  end: Alignment.bottomCenter,
+                                ),
+                              ),
+                            ),
+                            const Positioned(
+                              right: 12,
+                              top: 12,
+                              child: Icon(
+                                Icons.motion_photos_on_rounded,
+                                color: AfterFrameColors.lime,
+                              ),
+                            ),
+                            Positioned(
+                              left: 14,
+                              right: 14,
+                              bottom: 13,
+                              child: Text(
+                                item.displayName,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
-                  itemCount: exports.length,
-                  itemBuilder: (_, index) {
-                    final item = exports[index];
-                    return ClipRRect(
-                      borderRadius: BorderRadius.circular(22),
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          Image.file(
-                            File(item.coverPath),
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, _, _) =>
-                                Container(color: AfterFrameColors.panelSoft),
-                          ),
-                          const DecoratedBox(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [Colors.transparent, Colors.black87],
-                                begin: Alignment.center,
-                                end: Alignment.bottomCenter,
-                              ),
-                            ),
-                          ),
-                          const Positioned(
-                            right: 12,
-                            top: 12,
-                            child: Icon(
-                              Icons.motion_photos_on_rounded,
-                              color: AfterFrameColors.lime,
-                            ),
-                          ),
-                          Positioned(
-                            left: 14,
-                            right: 14,
-                            bottom: 13,
-                            child: Text(
-                              item.path.split('/').last,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-        ),
-      ],
-    ),
-  );
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _EmptyWorks extends StatelessWidget {
   const _EmptyWorks({required this.onCreate});
   final VoidCallback onCreate;
   @override
-  Widget build(BuildContext context) => Center(
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          Icons.filter_vintage_outlined,
-          size: 74,
-          color: Colors.white.withValues(alpha: .18),
-        ),
-        const SizedBox(height: 18),
-        const Text(
-          '还没有被留下的瞬间',
-          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
-        ),
-        const SizedBox(height: 7),
-        const Text(
-          '从相册选一段视频开始吧',
-          style: TextStyle(color: AfterFrameColors.muted),
-        ),
-        const SizedBox(height: 22),
-        FilledButton.icon(
-          onPressed: onCreate,
-          icon: const Icon(Icons.add_rounded),
-          label: const Text('创建第一张余帧'),
-        ),
-      ],
-    ),
-  );
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.filter_vintage_outlined,
+            size: 74,
+            color: Colors.white.withValues(alpha: .18),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            l10n.text('emptyWorks'),
+            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            l10n.text('emptyWorksHint'),
+            style: const TextStyle(color: AfterFrameColors.muted),
+          ),
+          const SizedBox(height: 22),
+          FilledButton.icon(
+            onPressed: onCreate,
+            icon: const Icon(Icons.add_rounded),
+            label: Text(l10n.text('createFirst')),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _Profile extends StatelessWidget {
   const _Profile();
   @override
-  Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.all(20),
-    children: [
-      const SizedBox(height: 10),
-      Text('我的', style: Theme.of(context).textTheme.headlineMedium),
-      const SizedBox(height: 26),
-      const CircleAvatar(
-        radius: 38,
-        backgroundColor: AfterFrameColors.lime,
-        child: Icon(Icons.person_rounded, size: 38, color: Colors.black),
-      ),
-      const SizedBox(height: 14),
-      const Center(
-        child: Text(
-          '记忆收藏家',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final language = AppLanguageScope.controllerOf(context);
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        const SizedBox(height: 10),
+        Text(
+          l10n.text('profileTitle'),
+          style: Theme.of(context).textTheme.headlineMedium,
         ),
-      ),
-      const SizedBox(height: 30),
-      for (final item in const [
-        (Icons.high_quality_rounded, '导出画质', '原始画质'),
-        (Icons.folder_zip_outlined, 'Live 容器', '.live'),
-        (Icons.info_outline_rounded, '关于余帧', '0.1.0'),
-      ])
-        Card(
-          margin: const EdgeInsets.only(bottom: 10),
-          child: ListTile(
-            leading: Icon(item.$1),
-            title: Text(item.$2),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  item.$3,
-                  style: const TextStyle(color: AfterFrameColors.muted),
-                ),
-                const Icon(Icons.chevron_right_rounded),
-              ],
-            ),
+        const SizedBox(height: 26),
+        const CircleAvatar(
+          radius: 38,
+          backgroundColor: AfterFrameColors.lime,
+          child: Icon(Icons.person_rounded, size: 38, color: Colors.black),
+        ),
+        const SizedBox(height: 14),
+        Center(
+          child: Text(
+            l10n.text('collector'),
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
           ),
         ),
-    ],
-  );
+        const SizedBox(height: 30),
+        _LanguageSettings(controller: language),
+        const SizedBox(height: 10),
+        for (final item in [
+          (
+            Icons.photo_library_outlined,
+            l10n.text('album'),
+            l10n.text('albumValue'),
+          ),
+          (
+            Icons.high_quality_rounded,
+            l10n.text('exportQuality'),
+            l10n.text('originalQuality'),
+          ),
+          (Icons.folder_zip_outlined, l10n.text('liveContainer'), '.live'),
+          (Icons.info_outline_rounded, l10n.text('about'), '0.2.1'),
+        ])
+          Card(
+            margin: const EdgeInsets.only(bottom: 10),
+            child: ListTile(
+              leading: Icon(item.$1),
+              title: Text(item.$2),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    item.$3,
+                    style: const TextStyle(color: AfterFrameColors.muted),
+                  ),
+                  const Icon(Icons.chevron_right_rounded),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _LanguageSettings extends StatelessWidget {
+  const _LanguageSettings({required this.controller});
+
+  final AppLanguageController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.language_rounded,
+                  color: AfterFrameColors.lime,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l10n.text('appLanguage'),
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        l10n.text('languageHint'),
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: AfterFrameColors.muted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            SegmentedButton<AppLanguage>(
+              showSelectedIcon: false,
+              segments: [
+                ButtonSegment(
+                  value: AppLanguage.chinese,
+                  label: Text(l10n.text('chinese')),
+                ),
+                ButtonSegment(
+                  value: AppLanguage.english,
+                  label: Text(l10n.text('english')),
+                ),
+              ],
+              selected: {controller.language},
+              onSelectionChanged: (value) =>
+                  controller.setLanguage(value.first),
+              style: ButtonStyle(
+                visualDensity: VisualDensity.comfortable,
+                backgroundColor: WidgetStateProperty.resolveWith(
+                  (states) => states.contains(WidgetState.selected)
+                      ? AfterFrameColors.lime
+                      : AfterFrameColors.glassSoft,
+                ),
+                foregroundColor: WidgetStateProperty.resolveWith(
+                  (states) => states.contains(WidgetState.selected)
+                      ? AfterFrameColors.ink
+                      : Colors.white,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

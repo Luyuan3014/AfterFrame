@@ -2,6 +2,8 @@
 
 一个将视频中的珍贵瞬间转化为动态记忆的影像创作 App。
 
+当前版本：`0.2.1`
+
 ## 当前版本
 
 这是面向 Android 的 Flutter + Media3 Media Engine MVP，已经打通：
@@ -13,7 +15,10 @@
 5. Live 单帧 / Live 拼图创作入口与布局预览
 6. 使用 `Media3 Transformer` 进行帧准确裁剪与 MP4 导出
 7. 封装并导出 AfterFrame `.live` 开放容器
-8. 本次会话内作品库展示
+8. Live Studio 内真实视频预览、播放与选区循环
+9. 中英文全局切换与偏好持久化
+10. MP4/JPG 自动保存到系统 `AfterFrame` 相册
+11. 本次会话内作品库展示
 
 ## `.live` 容器规范 v1
 
@@ -26,19 +31,22 @@ memory.live
 └── motion.mp4      # 所选动态区间
 ```
 
-Android 导出目录：
+Android 公共导出位置：
 
 ```text
-Android/data/com.example.after_frame/files/Movies/AfterFrame/
+DCIM/AfterFrame/          # 系统相册可见的 MP4 与 JPG
+Downloads/AfterFrame/     # AfterFrame .live 开放容器
 ```
 
 ## 架构
 
 ```text
 Flutter Product UI
+  ├── AppLanguageScope (zh/en)
+  ├── video_player (content URI preview)
   └── MediaEngine (MethodChannel)
       └── Android Media Engine
-          ├── MediaStore Video Library
+          ├── MediaStore Video Library + Album Publisher
           ├── MediaMetadataRetriever
           ├── Media3 Transformer
           └── AfterFrame Live Packager
@@ -55,7 +63,6 @@ flutter run -d <android-device>
 
 ## 下一阶段建议
 
-- 引入 Media3 ExoPlayer，提供工作台内准确动态预览
 - 补充 Media3 导出进度、取消以及 HDR/色彩空间策略
 - 使用 Room/SQLite 持久化作品索引和草稿
 - 实现多视频拼图合成、同步策略和独立时间轴

@@ -2,8 +2,12 @@
 
 package com.example.after_frame
 
+import android.content.ContentValues
+import android.media.MediaScannerConnection
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
+import android.provider.MediaStore
 import androidx.media3.common.MediaItem
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
@@ -21,7 +25,7 @@ import java.util.concurrent.ExecutorService
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
-/** Frame-accurate MP4 clipping powered by Jetpack Media3 Transformer. */
+/** Frame-accurate export plus MediaStore publishing for the AfterFrame album. */
 class Media3ExportEngine(
     private val context: MainActivity,
     private val executor: ExecutorService,
@@ -59,13 +63,14 @@ class Media3ExportEngine(
                     transformer = null
                     executor.execute {
                         try {
-                            val output = packageLive(call, motion, work)
-                            context.runOnUiThread { result.success(output.absolutePath) }
+                            val output = packageAndPublish(call, motion, work)
+                            context.runOnUiThread { result.success(output) }
                         } catch (error: Exception) {
-                            work.deleteRecursively()
                             context.runOnUiThread {
                                 result.error("MEDIA_ENGINE_FAILED", error.message, null)
                             }
+                        } finally {
+                            work.deleteRecursively()
                         }
                     }
                 }
@@ -91,7 +96,11 @@ class Media3ExportEngine(
         transformer = null
     }
 
-    private fun packageLive(call: MethodCall, motion: File, work: File): File {
+    private fun packageAndPublish(
+        call: MethodCall,
+        motion: File,
+        work: File,
+    ): Map<String, String> {
         val startMs = call.argument<Number>("startMs")!!.toLong()
         val endMs = call.argument<Number>("endMs")!!.toLong()
         val coverMs = call.argument<Number>("coverMs")!!.toLong()
@@ -100,11 +109,14 @@ class Media3ExportEngine(
             .substringBeforeLast('.')
             .replace(Regex("[^a-zA-Z0-9_\\-\\u4e00-\\u9fa5]"), "_")
             .take(40)
+        val stamp = System.currentTimeMillis()
+        val baseName = "${safeName}_$stamp"
+        val live = File(work, "$baseName.live")
         val manifest = JSONObject().apply {
             put("format", "com.afterframe.live")
             put("version", 1)
             put("engine", "androidx.media3.transformer")
-            put("createdAt", System.currentTimeMillis())
+            put("createdAt", stamp)
             put("sourceName", call.argument<String>("name"))
             put("durationMs", endMs - startMs)
             put("coverTimeMs", coverMs - startMs)
@@ -115,18 +127,118 @@ class Media3ExportEngine(
             put("cover", "cover.jpg")
             put("motion", "motion.mp4")
         }
-        val outputDirectory = File(
-            context.getExternalFilesDir(Environment.DIRECTORY_MOVIES),
-            "AfterFrame",
-        ).apply { mkdirs() }
-        val output = File(outputDirectory, "${safeName}_${System.currentTimeMillis()}.live")
-        ZipOutputStream(FileOutputStream(output)).use { zip ->
+        ZipOutputStream(FileOutputStream(live)).use { zip ->
             addBytes(zip, "manifest.json", manifest.toString(2).toByteArray(Charsets.UTF_8))
             addFile(zip, "cover.jpg", cover)
             addFile(zip, "motion.mp4", motion)
         }
-        work.deleteRecursively()
-        return output
+
+        val published = mutableListOf<Uri>()
+        try {
+            val videoUri = publishMedia(
+                source = motion,
+                displayName = "$baseName.mp4",
+                mimeType = "video/mp4",
+                collection = if (Build.VERSION.SDK_INT >= 29) {
+                    MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                } else {
+                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                },
+                publicDirectory = Environment.DIRECTORY_DCIM,
+                relativeFolder = "AfterFrame",
+            ).also(published::add)
+            val coverUri = publishMedia(
+                source = cover,
+                displayName = "$baseName.jpg",
+                mimeType = "image/jpeg",
+                collection = if (Build.VERSION.SDK_INT >= 29) {
+                    MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                } else {
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                },
+                publicDirectory = Environment.DIRECTORY_DCIM,
+                relativeFolder = "AfterFrame",
+            ).also(published::add)
+            val liveUri = publishMedia(
+                source = live,
+                displayName = live.name,
+                mimeType = "application/vnd.afterframe.live",
+                collection = if (Build.VERSION.SDK_INT >= 29) {
+                    MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                } else {
+                    MediaStore.Files.getContentUri("external")
+                },
+                publicDirectory = Environment.DIRECTORY_DOWNLOADS,
+                relativeFolder = "AfterFrame",
+            ).also(published::add)
+            return mapOf(
+                "liveUri" to liveUri.toString(),
+                "galleryUri" to videoUri.toString(),
+                "coverUri" to coverUri.toString(),
+                "displayName" to baseName,
+                "albumName" to "AfterFrame",
+            )
+        } catch (error: Exception) {
+            published.asReversed().forEach(::removePublished)
+            throw error
+        }
+    }
+
+    private fun publishMedia(
+        source: File,
+        displayName: String,
+        mimeType: String,
+        collection: Uri,
+        publicDirectory: String,
+        relativeFolder: String,
+    ): Uri {
+        if (Build.VERSION.SDK_INT < 29) {
+            @Suppress("DEPRECATION")
+            val directory = File(
+                Environment.getExternalStoragePublicDirectory(publicDirectory),
+                relativeFolder,
+            ).apply { mkdirs() }
+            val destination = File(directory, displayName)
+            source.copyTo(destination, overwrite = false)
+            MediaScannerConnection.scanFile(
+                context,
+                arrayOf(destination.absolutePath),
+                arrayOf(mimeType),
+                null,
+            )
+            return Uri.fromFile(destination)
+        }
+
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+            put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "$publicDirectory/$relativeFolder")
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val uri = context.contentResolver.insert(collection, values)
+            ?: throw IllegalStateException("无法创建系统相册项目")
+        try {
+            context.contentResolver.openOutputStream(uri, "w")?.use { output ->
+                FileInputStream(source).use { input -> input.copyTo(output) }
+            } ?: throw IllegalStateException("无法写入系统相册")
+            context.contentResolver.update(
+                uri,
+                ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
+                null,
+                null,
+            )
+            return uri
+        } catch (error: Exception) {
+            context.contentResolver.delete(uri, null, null)
+            throw error
+        }
+    }
+
+    private fun removePublished(uri: Uri) {
+        runCatching {
+            if (uri.scheme == "file") File(uri.path!!).delete()
+            else context.contentResolver.delete(uri, null, null)
+        }
     }
 
     private fun addFile(zip: ZipOutputStream, name: String, file: File) {

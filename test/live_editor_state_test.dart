@@ -72,4 +72,46 @@ void main() {
     expect(state.isLoading, isTrue);
     expect(state.mode, CreationMode.motionCollage);
   });
+
+  test('AI cover insights select deterministic extracted moments', () {
+    final state = LiveEditorState(asset: asset, mode: CreationMode.liveFrame);
+    addTearDown(state.dispose);
+    state.setFrames(
+      List.generate(
+        9,
+        (index) => FrameSample(path: 'frame-$index.jpg', timeMs: index * 750),
+      ),
+    );
+
+    expect(state.coverSelectionMode, CoverSelectionMode.aiRecommended);
+    expect(state.coverFrame, 3750);
+
+    state.applyCoverInsight(CoverInsight.bestComposition);
+    expect(state.coverFrame, 2250);
+    expect(state.currentPosition, state.coverFrame);
+  });
+
+  test('manual cover selection and enhancement are reflected in state', () {
+    final state = LiveEditorState(asset: asset, mode: CreationMode.liveFrame);
+    addTearDown(state.dispose);
+
+    state.setCoverFrame(1800);
+    state.toggleEnhancement();
+
+    expect(state.coverSelectionMode, CoverSelectionMode.manual);
+    expect(state.coverFrame, 1800);
+    expect(state.enhancementEnabled, isFalse);
+  });
+
+  test('preview position is constrained to the selected live range', () {
+    final state = LiveEditorState(asset: asset, mode: CreationMode.liveFrame);
+    addTearDown(state.dispose);
+    state.setTimeline(1000, 4000);
+
+    state.setCurrentPosition(2500);
+    expect(state.currentPosition, 2500);
+
+    state.setCurrentPosition(7000);
+    expect(state.currentPosition, 4000);
+  });
 }

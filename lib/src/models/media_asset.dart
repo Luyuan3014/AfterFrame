@@ -28,13 +28,13 @@ class MediaAsset {
   }
 
   factory MediaAsset.fromMap(Map<Object?, Object?> map) => MediaAsset(
-        uri: map['uri'] as String,
-        name: (map['name'] as String?) ?? '未命名视频',
-        durationMs: (map['durationMs'] as num?)?.toInt() ?? 0,
-        width: (map['width'] as num?)?.toInt() ?? 0,
-        height: (map['height'] as num?)?.toInt() ?? 0,
-        rotation: (map['rotation'] as num?)?.toInt() ?? 0,
-      );
+    uri: map['uri'] as String,
+    name: (map['name'] as String?) ?? 'AfterFrame',
+    durationMs: (map['durationMs'] as num?)?.toInt() ?? 0,
+    width: (map['width'] as num?)?.toInt() ?? 0,
+    height: (map['height'] as num?)?.toInt() ?? 0,
+    rotation: (map['rotation'] as num?)?.toInt() ?? 0,
+  );
 }
 
 class FrameSample {
@@ -44,8 +44,16 @@ class FrameSample {
 }
 
 class LiveExport {
-  const LiveExport({required this.path, required this.createdAt, required this.coverPath});
+  const LiveExport({
+    required this.path,
+    required this.createdAt,
+    required this.coverPath,
+    this.galleryUri = '',
+    this.displayName = 'AfterFrame',
+  });
   final String path;
   final DateTime createdAt;
   final String coverPath;
+  final String galleryUri;
+  final String displayName;
 }

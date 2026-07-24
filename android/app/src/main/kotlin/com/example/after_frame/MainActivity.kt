@@ -46,6 +46,22 @@ class MainActivity : FlutterActivity() {
                 )
             }
             "exportLive" -> exportEngine.export(call, result)
+            "getAppLanguage" -> result.success(
+                getSharedPreferences("afterframe_settings", MODE_PRIVATE)
+                    .getString("app_language", "zh"),
+            )
+            "setAppLanguage" -> {
+                val language = call.argument<String>("language")
+                if (language != "zh" && language != "en") {
+                    result.error("INVALID_LANGUAGE", "Unsupported language", null)
+                } else {
+                    getSharedPreferences("afterframe_settings", MODE_PRIVATE)
+                        .edit()
+                        .putString("app_language", language)
+                        .apply()
+                    result.success(null)
+                }
+            }
             else -> result.notImplemented()
         }
     }
@@ -80,6 +96,10 @@ class MainActivity : FlutterActivity() {
             Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
         )
         Build.VERSION.SDK_INT >= 33 -> arrayOf(Manifest.permission.READ_MEDIA_VIDEO)
+        Build.VERSION.SDK_INT <= 28 -> arrayOf(
+            Manifest.permission.READ_EXTERNAL_STORAGE,
+            Manifest.permission.WRITE_EXTERNAL_STORAGE,
+        )
         else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
     }
 

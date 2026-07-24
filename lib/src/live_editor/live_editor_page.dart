@@ -1,8 +1,11 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
 import '../models/media_asset.dart';
 import '../services/media_engine.dart';
 import '../theme.dart';
+import '../localization/app_localizations.dart';
 import 'components/advanced_settings.dart';
 import 'components/collage_layout_selector.dart';
 import 'components/cover_selector.dart';
@@ -65,7 +68,7 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
       }
     } catch (error) {
       if (mounted && generation == _loadGeneration) {
-        _message(error.toString());
+        _message('errorFrame');
       }
     } finally {
       if (mounted && generation == _loadGeneration) {
@@ -91,7 +94,7 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
         _editorState.videoPath,
         _editorState.coverFrame,
       );
-      final path = await widget.engine.exportLive(
+      final published = await widget.engine.exportLive(
         asset: _editorState.asset,
         startMs: _editorState.startTime,
         endMs: _editorState.endTime,
@@ -102,65 +105,98 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
       );
       if (!mounted) return;
       _editorState.setGenerateStatus(GenerateStatus.success);
-      await _showSuccess(path);
+      await _showSuccess(published);
       if (mounted) {
         Navigator.pop(
           context,
           LiveExport(
-            path: path,
+            path: published.liveUri,
             createdAt: DateTime.now(),
             coverPath: preciseCover,
+            galleryUri: published.galleryUri,
+            displayName: published.displayName,
           ),
         );
       }
     } catch (error) {
       if (mounted) {
         _editorState.setGenerateStatus(GenerateStatus.failed);
-        _message(error.toString());
+        _message('errorExport');
       }
     }
   }
 
-  Future<void> _showSuccess(String path) => showModalBottomSheet<void>(
+  Future<void> _showSuccess(
+    PublishedLive published,
+  ) => showModalBottomSheet<void>(
     context: context,
     backgroundColor: AfterFrameColors.panel,
     showDragHandle: true,
-    builder: (_) => Padding(
-      padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const CircleAvatar(
-            radius: 28,
-            backgroundColor: AfterFrameColors.lime,
-            child: Icon(Icons.check_rounded, color: Colors.black, size: 32),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            '这一刻，留下了',
-            style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 7),
-          Text(
-            path,
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: AfterFrameColors.muted, fontSize: 12),
-          ),
-          const SizedBox(height: 22),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('完成'),
+    builder: (sheetContext) {
+      final l10n = sheetContext.l10n;
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircleAvatar(
+              radius: 28,
+              backgroundColor: AfterFrameColors.lime,
+              child: Icon(Icons.check_rounded, color: Colors.black, size: 32),
             ),
-          ),
-        ],
-      ),
-    ),
+            const SizedBox(height: 16),
+            Text(
+              l10n.text('momentSaved'),
+              style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 7),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+              decoration: BoxDecoration(
+                color: AfterFrameColors.lime.withValues(alpha: .1),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: AfterFrameColors.lime.withValues(alpha: .3),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.photo_library_outlined,
+                    size: 16,
+                    color: AfterFrameColors.lime,
+                  ),
+                  const SizedBox(width: 7),
+                  Text(
+                    l10n.text('savedToAlbum'),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 22),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text(l10n.text('done')),
+              ),
+            ),
+          ],
+        ),
+      );
+    },
   );
 
-  void _message(String value) => ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(value), behavior: SnackBarBehavior.floating),
+  void _message(String key) => ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(context.l10n.text(key)),
+      behavior: SnackBarBehavior.floating,
+    ),
   );
 
   @override
@@ -191,23 +227,26 @@ class _LiveEditorScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = LiveEditorScope.of(context);
+    final l10n = context.l10n;
     final canGenerate = state.selectedCover != null && !state.isProcessing;
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
         title: Column(
           children: [
             const Text(
-              '动态工作台',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+              'AfterFrame Studio',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -.2,
+              ),
             ),
             Text(
-              assets.length > 1
-                  ? '${state.activeAssetIndex + 1} / ${assets.length} · 按选择顺序'
-                  : '选择最值得留下的一帧',
+              l10n.text('studioSubtitle'),
               style: const TextStyle(
-                fontSize: 10,
+                fontSize: 9,
                 color: AfterFrameColors.muted,
+                letterSpacing: .35,
               ),
             ),
           ],
@@ -215,9 +254,9 @@ class _LiveEditorScaffold extends StatelessWidget {
         actions: [
           TextButton(
             onPressed: canGenerate ? onGenerate : null,
-            child: const Text(
-              '导出',
-              style: TextStyle(
+            child: Text(
+              l10n.text('export'),
+              style: const TextStyle(
                 color: AfterFrameColors.lime,
                 fontWeight: FontWeight.w800,
               ),
@@ -226,57 +265,147 @@ class _LiveEditorScaffold extends StatelessWidget {
         ],
       ),
       body: state.isLoading
-          ? const Center(
+          ? Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  CircularProgressIndicator(color: AfterFrameColors.lime),
-                  SizedBox(height: 16),
+                  const CircularProgressIndicator(color: AfterFrameColors.lime),
+                  const SizedBox(height: 16),
                   Text(
-                    '正在读懂这段视频…',
-                    style: TextStyle(color: AfterFrameColors.muted),
+                    l10n.text('readingVideo'),
+                    style: const TextStyle(color: AfterFrameColors.muted),
                   ),
                 ],
               ),
             )
-          : Column(
-              children: [
-                const Expanded(child: LivePreviewCard()),
-                Container(
-                  decoration: const BoxDecoration(
-                    color: AfterFrameColors.panel,
-                    borderRadius: BorderRadius.vertical(
-                      top: Radius.circular(30),
+          : TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 480),
+              curve: Curves.easeOutCubic,
+              builder: (context, value, child) => Opacity(
+                opacity: value,
+                child: Transform.translate(
+                  offset: Offset(0, 12 * (1 - value)),
+                  child: child,
+                ),
+              ),
+              child: Stack(
+                children: [
+                  const Positioned(
+                    left: -90,
+                    right: -90,
+                    top: -130,
+                    height: 390,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: RadialGradient(
+                          colors: [Color(0x172CFF79), Colors.transparent],
+                        ),
+                      ),
                     ),
                   ),
-                  padding: const EdgeInsets.fromLTRB(18, 17, 18, 22),
-                  child: Column(
-                    children: [
-                      if (assets.length > 1) ...[
-                        SourceSelector(
-                          assets: assets,
-                          engine: engine,
-                          onSelected: onSourceSelected,
+                  CustomScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    slivers: [
+                      const SliverToBoxAdapter(child: LivePreviewCard()),
+                      SliverToBoxAdapter(
+                        child: ClipRRect(
+                          borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(34),
+                          ),
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+                            child: Container(
+                              decoration: const BoxDecoration(
+                                color: AfterFrameColors.glass,
+                                borderRadius: BorderRadius.vertical(
+                                  top: Radius.circular(34),
+                                ),
+                                border: Border(
+                                  top: BorderSide(
+                                    color: AfterFrameColors.glassBorder,
+                                  ),
+                                ),
+                              ),
+                              padding: const EdgeInsets.fromLTRB(
+                                18,
+                                24,
+                                18,
+                                30,
+                              ),
+                              child: Column(
+                                children: [
+                                  if (assets.length > 1) ...[
+                                    _Reveal(
+                                      child: SourceSelector(
+                                        assets: assets,
+                                        engine: engine,
+                                        onSelected: onSourceSelected,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 22),
+                                  ],
+                                  const _Reveal(child: CreationModeSelector()),
+                                  const SizedBox(height: 28),
+                                  _Reveal(
+                                    child: AnimatedSwitcher(
+                                      duration: const Duration(
+                                        milliseconds: 280,
+                                      ),
+                                      child:
+                                          state.mode == CreationMode.liveFrame
+                                          ? const CoverSelector(
+                                              key: ValueKey('cover'),
+                                            )
+                                          : const CollageLayoutSelector(
+                                              key: ValueKey('collage'),
+                                            ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 30),
+                                  const _Reveal(child: TimelineEditor()),
+                                  const SizedBox(height: 24),
+                                  const _Reveal(child: AdvancedSettings()),
+                                  const SizedBox(height: 20),
+                                  _Reveal(
+                                    child: GenerateButton(
+                                      onPressed: canGenerate
+                                          ? onGenerate
+                                          : null,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         ),
-                        const SizedBox(height: 14),
-                      ],
-                      const CreationModeSelector(),
-                      const SizedBox(height: 18),
-                      if (state.mode == CreationMode.liveFrame)
-                        const CoverSelector()
-                      else
-                        const CollageLayoutSelector(),
-                      const SizedBox(height: 8),
-                      const AdvancedSettings(),
-                      const TimelineEditor(),
-                      GenerateButton(
-                        onPressed: canGenerate ? onGenerate : null,
                       ),
                     ],
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
     );
   }
+}
+
+class _Reveal extends StatelessWidget {
+  const _Reveal({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
+    tween: Tween(begin: 0, end: 1),
+    duration: const Duration(milliseconds: 520),
+    curve: Curves.easeOutCubic,
+    builder: (_, value, child) => Opacity(
+      opacity: value,
+      child: Transform.translate(
+        offset: Offset(0, 16 * (1 - value)),
+        child: child,
+      ),
+    ),
+    child: child,
+  );
 }
