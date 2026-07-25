@@ -15,7 +15,8 @@ class CoverSelector extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = LiveEditorScope.of(context);
     final l10n = context.l10n;
-    final aiMode = state.coverSelectionMode == CoverSelectionMode.aiRecommended;
+    final suggestedMode =
+        state.coverSelectionMode == CoverSelectionMode.suggested;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -69,18 +70,17 @@ class CoverSelector extends StatelessWidget {
               Expanded(
                 child: _SelectionTab(
                   icon: Icons.auto_awesome_rounded,
-                  label: l10n.text('aiRecommended'),
-                  selected: aiMode,
-                  onTap: () => state.setCoverSelectionMode(
-                    CoverSelectionMode.aiRecommended,
-                  ),
+                  label: l10n.text('suggestedCovers'),
+                  selected: suggestedMode,
+                  onTap: () =>
+                      state.setCoverSelectionMode(CoverSelectionMode.suggested),
                 ),
               ),
               Expanded(
                 child: _SelectionTab(
                   icon: Icons.tune_rounded,
                   label: l10n.text('manualSelect'),
-                  selected: !aiMode,
+                  selected: !suggestedMode,
                   onTap: () =>
                       state.setCoverSelectionMode(CoverSelectionMode.manual),
                 ),
@@ -91,7 +91,7 @@ class CoverSelector extends StatelessWidget {
         AnimatedSize(
           duration: const Duration(milliseconds: 260),
           curve: Curves.easeOutCubic,
-          child: aiMode
+          child: suggestedMode
               ? Padding(
                   padding: const EdgeInsets.only(top: 12),
                   child: Wrap(
@@ -99,29 +99,31 @@ class CoverSelector extends StatelessWidget {
                     runSpacing: 7,
                     children: [
                       _InsightChip(
-                        label: l10n.text('bestLight'),
+                        label: l10n.text('laterMoment'),
                         icon: Icons.light_mode_outlined,
-                        value: CoverInsight.bestLight,
+                        value: CoverSuggestion.laterMoment,
                         selected:
-                            state.selectedInsight == CoverInsight.bestLight,
-                        onTap: state.applyCoverInsight,
+                            state.selectedSuggestion ==
+                            CoverSuggestion.laterMoment,
+                        onTap: state.applyCoverSuggestion,
                       ),
                       _InsightChip(
-                        label: l10n.text('sharpest'),
+                        label: l10n.text('middleMoment'),
                         icon: Icons.center_focus_strong_rounded,
-                        value: CoverInsight.sharpest,
+                        value: CoverSuggestion.middleMoment,
                         selected:
-                            state.selectedInsight == CoverInsight.sharpest,
-                        onTap: state.applyCoverInsight,
+                            state.selectedSuggestion ==
+                            CoverSuggestion.middleMoment,
+                        onTap: state.applyCoverSuggestion,
                       ),
                       _InsightChip(
-                        label: l10n.text('bestComposition'),
+                        label: l10n.text('earlierMoment'),
                         icon: Icons.grid_3x3_rounded,
-                        value: CoverInsight.bestComposition,
+                        value: CoverSuggestion.earlierMoment,
                         selected:
-                            state.selectedInsight ==
-                            CoverInsight.bestComposition,
-                        onTap: state.applyCoverInsight,
+                            state.selectedSuggestion ==
+                            CoverSuggestion.earlierMoment,
+                        onTap: state.applyCoverSuggestion,
                       ),
                     ],
                   ),
@@ -270,9 +272,9 @@ class _InsightChip extends StatelessWidget {
 
   final String label;
   final IconData icon;
-  final CoverInsight value;
+  final CoverSuggestion value;
   final bool selected;
-  final ValueChanged<CoverInsight> onTap;
+  final ValueChanged<CoverSuggestion> onTap;
 
   @override
   Widget build(BuildContext context) => InkWell(

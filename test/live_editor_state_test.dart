@@ -73,7 +73,7 @@ void main() {
     expect(state.mode, CreationMode.motionCollage);
   });
 
-  test('AI cover insights select deterministic extracted moments', () {
+  test('cover suggestions select deterministic extracted moments', () {
     final state = LiveEditorState(asset: asset, mode: CreationMode.liveFrame);
     addTearDown(state.dispose);
     state.setFrames(
@@ -83,13 +83,41 @@ void main() {
       ),
     );
 
-    expect(state.coverSelectionMode, CoverSelectionMode.aiRecommended);
+    expect(state.coverSelectionMode, CoverSelectionMode.suggested);
     expect(state.coverFrame, 3750);
 
-    state.applyCoverInsight(CoverInsight.bestComposition);
+    state.applyCoverSuggestion(CoverSuggestion.earlierMoment);
     expect(state.coverFrame, 2250);
     expect(state.currentPosition, state.coverFrame);
   });
+
+  test(
+    'collage layout, audio priority and shortest duration are centralized',
+    () {
+      const short = MediaAsset(
+        uri: 'content://video/2',
+        name: 'short.mp4',
+        durationMs: 3200,
+        width: 1920,
+        height: 1080,
+        rotation: 0,
+      );
+      final state = LiveEditorState(
+        asset: asset,
+        assets: const [asset, short],
+        mode: CreationMode.motionCollage,
+      );
+      addTearDown(state.dispose);
+
+      expect(state.duration, 3200);
+      expect(state.endTime, 3200);
+      state.setCollageLayout(CollageLayout.featureGrid);
+      state.setCollageAudioSource(1);
+
+      expect(state.collageLayout, CollageLayout.featureGrid);
+      expect(state.collageAudioSourceIndex, 1);
+    },
+  );
 
   test('manual cover selection and enhancement are reflected in state', () {
     final state = LiveEditorState(asset: asset, mode: CreationMode.liveFrame);

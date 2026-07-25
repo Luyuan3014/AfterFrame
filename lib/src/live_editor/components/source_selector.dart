@@ -34,7 +34,9 @@ class SourceSelector extends StatelessWidget {
             onTap: () => onSelected(index),
             borderRadius: BorderRadius.circular(12),
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 160),
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 160),
               width: 76,
               padding: const EdgeInsets.all(2),
               decoration: BoxDecoration(

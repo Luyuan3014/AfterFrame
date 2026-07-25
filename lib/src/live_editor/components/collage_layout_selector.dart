@@ -6,20 +6,15 @@ import '../../models/media_asset.dart';
 import '../../theme.dart';
 import '../../localization/app_localizations.dart';
 import '../live_editor_scope.dart';
+import '../models/live_editor_state.dart';
 
-class CollageLayoutSelector extends StatefulWidget {
+class CollageLayoutSelector extends StatelessWidget {
   const CollageLayoutSelector({super.key});
 
   @override
-  State<CollageLayoutSelector> createState() => _CollageLayoutSelectorState();
-}
-
-class _CollageLayoutSelectorState extends State<CollageLayoutSelector> {
-  int selected = 0;
-
-  @override
   Widget build(BuildContext context) {
-    final frames = LiveEditorScope.of(context).frames;
+    final state = LiveEditorScope.of(context);
+    final frames = state.frames;
     final l10n = context.l10n;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -34,7 +29,7 @@ class _CollageLayoutSelectorState extends State<CollageLayoutSelector> {
             for (int i = 0; i < 3; i++) ...[
               Expanded(
                 child: InkWell(
-                  onTap: () => setState(() => selected = i),
+                  onTap: () => state.setCollageLayout(CollageLayout.values[i]),
                   borderRadius: BorderRadius.circular(14),
                   child: Container(
                     height: 68,
@@ -43,7 +38,7 @@ class _CollageLayoutSelectorState extends State<CollageLayoutSelector> {
                       color: AfterFrameColors.panelSoft,
                       borderRadius: BorderRadius.circular(14),
                       border: Border.all(
-                        color: selected == i
+                        color: state.collageLayout.index == i
                             ? AfterFrameColors.lime
                             : Colors.transparent,
                         width: 2,
@@ -62,6 +57,25 @@ class _CollageLayoutSelectorState extends State<CollageLayoutSelector> {
           l10n.text('collageMvp'),
           style: const TextStyle(fontSize: 10, color: AfterFrameColors.muted),
         ),
+        if (state.assets.length > 1) ...[
+          const SizedBox(height: 14),
+          Text(
+            l10n.text('collageAudioSource'),
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: List.generate(
+              state.collageSourceCount,
+              (index) => ChoiceChip(
+                label: Text('${index + 1}'),
+                selected: state.collageAudioSourceIndex == index,
+                onSelected: (_) => state.setCollageAudioSource(index),
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }

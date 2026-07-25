@@ -9,6 +9,13 @@ void main() {
     );
   });
 
+  test('localized resource placeholders stay complete', () {
+    expect(
+      AppLocalizations.placeholdersFor(AppLanguage.chinese),
+      AppLocalizations.placeholdersFor(AppLanguage.english),
+    );
+  });
+
   test('Chinese and English resources stay language-consistent', () {
     const zh = AppLocalizations(AppLanguage.chinese);
     const en = AppLocalizations(AppLanguage.english);

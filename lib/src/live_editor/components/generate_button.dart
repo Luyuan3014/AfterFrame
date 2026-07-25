@@ -18,6 +18,7 @@ class _GenerateButtonState extends State<GenerateButton> {
   bool _pressed = false;
 
   void _setPressed(bool value) {
+    if (MediaQuery.disableAnimationsOf(context)) value = false;
     if (_pressed == value) return;
     setState(() => _pressed = value);
   }
@@ -37,11 +38,15 @@ class _GenerateButtonState extends State<GenerateButton> {
         onPointerCancel: (_) => _setPressed(false),
         child: AnimatedScale(
           scale: _pressed ? .975 : 1,
-          duration: const Duration(milliseconds: 110),
+          duration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : const Duration(milliseconds: 110),
           curve: Curves.easeOut,
           child: AnimatedOpacity(
             opacity: enabled ? 1 : .5,
-            duration: const Duration(milliseconds: 180),
+            duration: MediaQuery.disableAnimationsOf(context)
+                ? Duration.zero
+                : const Duration(milliseconds: 180),
             child: Container(
               height: 72,
               width: double.infinity,
@@ -92,20 +97,24 @@ class _GenerateButtonState extends State<GenerateButton> {
                         ),
                       },
                       const SizedBox(width: 11),
-                      Text(
-                        switch (status) {
-                          GenerateStatus.processing => l10n.text(
-                            'creatingLive',
+                      Flexible(
+                        child: Text(
+                          switch (status) {
+                            GenerateStatus.processing => l10n.text(
+                              'creatingLive',
+                            ),
+                            GenerateStatus.success => l10n.text('createdLive'),
+                            GenerateStatus.failed => l10n.text('retryCreate'),
+                            GenerateStatus.idle => l10n.text('createLive'),
+                          },
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.black,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -.2,
                           ),
-                          GenerateStatus.success => l10n.text('createdLive'),
-                          GenerateStatus.failed => l10n.text('retryCreate'),
-                          GenerateStatus.idle => l10n.text('createLive'),
-                        },
-                        style: const TextStyle(
-                          color: Colors.black,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: -.2,
                         ),
                       ),
                     ],

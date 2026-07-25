@@ -20,6 +20,7 @@ class AdvancedSettings extends StatelessWidget {
           border: Border.all(color: AfterFrameColors.glassBorder),
         ),
         child: ExpansionTile(
+          key: const Key('more-settings'),
           tilePadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 2),
           childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 15),
           iconColor: AfterFrameColors.lime,

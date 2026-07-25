@@ -50,10 +50,23 @@ class LiveExport {
     required this.coverPath,
     this.galleryUri = '',
     this.displayName = 'AfterFrame',
+    this.shareMimeType = 'video/mp4',
   });
   final String path;
   final DateTime createdAt;
   final String coverPath;
   final String galleryUri;
   final String displayName;
+  final String shareMimeType;
+
+  factory LiveExport.fromMap(Map<Object?, Object?> map) => LiveExport(
+    path: map['liveUri'] as String? ?? '',
+    createdAt: DateTime.fromMillisecondsSinceEpoch(
+      (map['createdAt'] as num?)?.toInt() ?? 0,
+    ),
+    coverPath: map['coverPath'] as String? ?? '',
+    galleryUri: map['galleryUri'] as String? ?? '',
+    displayName: map['displayName'] as String? ?? 'AfterFrame',
+    shareMimeType: map['shareMimeType'] as String? ?? 'video/mp4',
+  );
 }

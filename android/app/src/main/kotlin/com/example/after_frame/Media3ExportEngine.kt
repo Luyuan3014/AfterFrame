@@ -10,9 +10,18 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.core.content.FileProvider
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.OverlaySettings
+import androidx.media3.common.VideoCompositorSettings
+import androidx.media3.common.audio.SpeedProvider
+import androidx.media3.common.util.Size
+import androidx.media3.effect.HslAdjustment
+import androidx.media3.effect.StaticOverlaySettings
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
+import androidx.media3.transformer.EditedMediaItemSequence
+import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.Transformer
@@ -30,6 +39,7 @@ import java.util.concurrent.ExecutorService
 class Media3ExportEngine(
     private val context: MainActivity,
     private val executor: ExecutorService,
+    private val exportIndex: ExportIndex,
 ) {
     private var transformer: Transformer? = null
 
@@ -38,27 +48,31 @@ class Media3ExportEngine(
             result.error("EXPORT_IN_PROGRESS", "已有导出任务正在进行", null)
             return
         }
-        val uri = Uri.parse(call.argument<String>("uri")!!)
         val startMs = call.argument<Number>("startMs")!!.toLong()
         val endMs = call.argument<Number>("endMs")!!.toLong()
         val keepAudio = call.argument<Boolean>("keepAudio") ?: true
+        val playbackSpeed = (call.argument<Number>("playbackSpeed")?.toFloat() ?: 1f)
+            .coerceIn(0.5f, 2f)
+        val enhancementEnabled = call.argument<Boolean>("enhancementEnabled") ?: false
+        val collageUris = call.argument<List<String>>("collageUris").orEmpty().take(3)
         val work = File(context.cacheDir, "afterframe/export/${UUID.randomUUID()}").apply { mkdirs() }
         val motion = File(work, "motion.mp4")
-        val mediaItem = MediaItem.Builder()
-            .setUri(uri)
-            .setClippingConfiguration(
-                MediaItem.ClippingConfiguration.Builder()
-                    .setStartPositionMs(startMs)
-                    .setEndPositionMs(endMs)
-                    .build(),
+        val uris = collageUris.ifEmpty { listOf(call.argument<String>("uri")!!) }
+        val audioSourceIndex = (call.argument<Number>("collageAudioSourceIndex")?.toInt() ?: 0)
+            .coerceIn(0, uris.lastIndex)
+        val editedItems = uris.mapIndexed { index, value ->
+            buildEditedItem(
+                uri = Uri.parse(value),
+                startMs = startMs,
+                endMs = endMs,
+                keepAudio = keepAudio && index == audioSourceIndex,
+                playbackSpeed = playbackSpeed,
+                enhancementEnabled = enhancementEnabled,
             )
-            .build()
-        val editedItem = EditedMediaItem.Builder(mediaItem)
-            .setRemoveAudio(!keepAudio)
-            .build()
+        }
 
         transformer = Transformer.Builder(context)
-            .experimentalSetTrimOptimizationEnabled(true)
+            .experimentalSetTrimOptimizationEnabled(editedItems.size == 1)
             .addListener(object : Transformer.Listener {
                 override fun onCompleted(composition: Composition, exportResult: ExportResult) {
                     transformer = null
@@ -89,7 +103,64 @@ class Media3ExportEngine(
                 }
             })
             .build()
-        transformer!!.start(editedItem, motion.absolutePath)
+        if (editedItems.size == 1) {
+            transformer!!.start(editedItems.single(), motion.absolutePath)
+        } else {
+            val sequences = editedItems.mapIndexed { index, item ->
+                if (keepAudio && index == audioSourceIndex) {
+                    EditedMediaItemSequence.withAudioAndVideoFrom(listOf(item))
+                } else {
+                    EditedMediaItemSequence.withVideoFrom(listOf(item))
+                }
+            }
+            val layout = call.argument<Number>("collageLayout")?.toInt() ?: 0
+            val composition = Composition.Builder(sequences)
+                .setVideoCompositorSettings(CollageVideoLayout(layout, sequences.size))
+                .build()
+            transformer!!.start(composition, motion.absolutePath)
+        }
+    }
+
+    private fun buildEditedItem(
+        uri: Uri,
+        startMs: Long,
+        endMs: Long,
+        keepAudio: Boolean,
+        playbackSpeed: Float,
+        enhancementEnabled: Boolean,
+    ): EditedMediaItem {
+        val mediaItem = MediaItem.Builder()
+            .setUri(uri)
+            .setClippingConfiguration(
+                MediaItem.ClippingConfiguration.Builder()
+                    .setStartPositionMs(startMs)
+                    .setEndPositionMs(endMs)
+                    .build(),
+            )
+            .build()
+        val builder = EditedMediaItem.Builder(mediaItem)
+            .setRemoveAudio(!keepAudio)
+            .setFrameRate(30)
+        if (playbackSpeed != 1f) {
+            builder.setSpeed(object : SpeedProvider {
+                override fun getSpeed(timeUs: Long): Float = playbackSpeed
+                override fun getNextSpeedChangeTimeUs(timeUs: Long): Long = C.TIME_UNSET
+            })
+        }
+        if (enhancementEnabled) {
+            builder.setEffects(
+                Effects(
+                    emptyList(),
+                    listOf(
+                        HslAdjustment.Builder()
+                            .adjustSaturation(8f)
+                            .adjustLightness(2f)
+                            .build(),
+                    ),
+                ),
+            )
+        }
+        return builder.build()
     }
 
     fun cancel() {
@@ -128,13 +199,17 @@ class Media3ExportEngine(
         // by some gallery readers as an additional recognition signal.
         val motionPhoto = File(work, "${baseName}MP.jpg")
         val presentationUs = ((coverMs - startMs).coerceIn(0, endMs - startMs)) * 1_000L
-        writeMotionPhoto(cover, motion, motionPhoto, presentationUs)
+        val loop = call.argument<Boolean>("loop") ?: false
+        writeMotionPhoto(cover, motion, motionPhoto, presentationUs, loop)
 
         // Keep a private, share-ready MP4. It does not create a second visible
         // gallery item, but FileProvider lets WeChat, Douyin and other apps read it.
         val shareDirectory = File(context.filesDir, "afterframe/exports").apply { mkdirs() }
         val shareVideo = File(shareDirectory, "$baseName.mp4")
         motion.copyTo(shareVideo, overwrite = false)
+        val coverDirectory = File(context.filesDir, "afterframe/covers").apply { mkdirs() }
+        val persistentCover = File(coverDirectory, "$baseName.jpg")
+        cover.copyTo(persistentCover, overwrite = false)
 
         val published = mutableListOf<Uri>()
         try {
@@ -155,16 +230,22 @@ class Media3ExportEngine(
                 "${context.packageName}.fileprovider",
                 shareVideo,
             ).also(published::add)
-            return mapOf(
+            val output = mapOf(
                 "liveUri" to motionPhotoUri.toString(),
                 "galleryUri" to shareVideoUri.toString(),
                 "coverUri" to motionPhotoUri.toString(),
+                "coverPath" to persistentCover.absolutePath,
                 "displayName" to baseName,
                 "albumName" to "AfterFrame",
+                "createdAt" to stamp.toString(),
+                "shareMimeType" to "video/mp4",
             )
+            exportIndex.save(output)
+            return output
         } catch (error: Exception) {
             published.asReversed().forEach(::removePublished)
             shareVideo.delete()
+            persistentCover.delete()
             throw error
         }
     }
@@ -174,6 +255,7 @@ class Media3ExportEngine(
         motion: File,
         destination: File,
         presentationTimestampUs: Long,
+        loop: Boolean,
     ) {
         val jpeg = cover.readBytes()
         require(jpeg.size >= 2 && jpeg[0] == 0xFF.toByte() && jpeg[1] == 0xD8.toByte()) {
@@ -187,9 +269,11 @@ class Media3ExportEngine(
                   xmlns:Camera="http://ns.google.com/photos/1.0/camera/"
                   xmlns:Container="http://ns.google.com/photos/1.0/container/"
                   xmlns:Item="http://ns.google.com/photos/1.0/container/item/"
+                  xmlns:AfterFrame="https://afterframe.app/ns/1.0/"
                   Camera:MotionPhoto="1"
                   Camera:MotionPhotoVersion="1"
-                  Camera:MotionPhotoPresentationTimestampUs="$presentationTimestampUs">
+                  Camera:MotionPhotoPresentationTimestampUs="$presentationTimestampUs"
+                  AfterFrame:Loop="$loop">
                   <Container:Directory>
                     <rdf:Seq>
                       <rdf:li rdf:parseType="Resource">
@@ -293,6 +377,39 @@ class Media3ExportEngine(
             if (uri.scheme == "file") File(uri.path!!).delete()
             else context.contentResolver.delete(uri, null, null)
         }
+    }
+
+    private class CollageVideoLayout(
+        private val layout: Int,
+        private val sourceCount: Int,
+    ) : VideoCompositorSettings {
+        override fun getOutputSize(inputSizes: List<Size>): Size = Size(1080, 1920)
+
+        override fun getOverlaySettings(inputId: Int, presentationTimeUs: Long): OverlaySettings {
+            if (sourceCount == 2) {
+                return if (layout == 1) {
+                    overlay(1f, 0.5f, 0f, if (inputId == 0) 0.5f else -0.5f)
+                } else {
+                    overlay(0.5f, 1f, if (inputId == 0) -0.5f else 0.5f, 0f)
+                }
+            }
+            return when (layout) {
+                1 -> overlay(1f, 1f / 3f, 0f, 2f / 3f - inputId * 2f / 3f)
+                2 -> if (inputId == 0) {
+                    overlay(2f / 3f, 1f, -1f / 3f, 0f)
+                } else {
+                    overlay(1f / 3f, 0.5f, 2f / 3f, if (inputId == 1) 0.5f else -0.5f)
+                }
+                else -> overlay(1f / 3f, 1f, -2f / 3f + inputId * 2f / 3f, 0f)
+            }
+        }
+
+        private fun overlay(scaleX: Float, scaleY: Float, x: Float, y: Float): OverlaySettings =
+            StaticOverlaySettings.Builder()
+                .setScale(scaleX, scaleY)
+                .setOverlayFrameAnchor(0f, 0f)
+                .setBackgroundFrameAnchor(x, y)
+                .build()
     }
 
 }

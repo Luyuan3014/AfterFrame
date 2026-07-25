@@ -14,6 +14,9 @@ class MediaEngine {
   const MediaEngine();
 
   static const _channel = MethodChannel('com.afterframe/media_engine');
+  static final Map<String, Future<String>> _thumbnailCache = {};
+  static final Map<String, Future<String>> _frameCache = {};
+  static const int _memoryCacheLimit = 96;
 
   Future<bool> requestVideoAccess() async {
     try {
@@ -52,6 +55,10 @@ class MediaEngine {
   }
 
   Future<String> videoThumbnail(String uri) async {
+    return _remember(_thumbnailCache, uri, () => _videoThumbnail(uri));
+  }
+
+  Future<String> _videoThumbnail(String uri) async {
     try {
       return await _channel.invokeMethod<String>('videoThumbnail', {
             'uri': uri,
@@ -63,6 +70,11 @@ class MediaEngine {
   }
 
   Future<String> extractFrame(String uri, int timeMs) async {
+    final key = '$uri@$timeMs';
+    return _remember(_frameCache, key, () => _extractFrame(uri, timeMs));
+  }
+
+  Future<String> _extractFrame(String uri, int timeMs) async {
     try {
       return await _channel.invokeMethod<String>('extractFrame', {
             'uri': uri,
@@ -71,6 +83,36 @@ class MediaEngine {
           '';
     } on PlatformException catch (error) {
       throw MediaEngineException(error.code, error.message ?? '封面提取失败');
+    }
+  }
+
+  static Future<String> _remember(
+    Map<String, Future<String>> cache,
+    String key,
+    Future<String> Function() loader,
+  ) {
+    final existing = cache[key];
+    if (existing != null) return existing;
+    if (cache.length >= _memoryCacheLimit) cache.remove(cache.keys.first);
+    final future = loader();
+    cache[key] = future;
+    future.catchError((Object _) {
+      cache.remove(key);
+      return '';
+    });
+    return future;
+  }
+
+  Future<List<LiveExport>> listExports() async {
+    try {
+      final data =
+          await _channel.invokeListMethod<Object?>('listExports') ?? const [];
+      return data
+          .cast<Map<Object?, Object?>>()
+          .map(LiveExport.fromMap)
+          .toList(growable: false);
+    } on PlatformException catch (error) {
+      throw MediaEngineException(error.code, error.message ?? '无法恢复作品索引');
     }
   }
 
@@ -98,6 +140,11 @@ class MediaEngine {
     required String coverPath,
     required bool keepAudio,
     required bool loop,
+    double playbackSpeed = 1,
+    bool enhancementEnabled = false,
+    List<MediaAsset> collageAssets = const [],
+    int collageLayout = 0,
+    int collageAudioSourceIndex = 0,
   }) async {
     try {
       final data = await _channel
@@ -110,6 +157,11 @@ class MediaEngine {
             'coverPath': coverPath,
             'keepAudio': keepAudio,
             'loop': loop,
+            'playbackSpeed': playbackSpeed,
+            'enhancementEnabled': enhancementEnabled,
+            'collageUris': collageAssets.map((item) => item.uri).toList(),
+            'collageLayout': collageLayout,
+            'collageAudioSourceIndex': collageAudioSourceIndex,
             'width': asset.width,
             'height': asset.height,
           });
@@ -134,11 +186,8 @@ class MediaEngine {
     title: '发送到微信、抖音或其他应用',
   );
 
-  Future<void> shareExportVideo(String uri) => _shareMedia(
-    uri: uri,
-    mimeType: 'video/mp4',
-    title: '发送到微信、抖音或其他应用',
-  );
+  Future<void> shareExport(String uri, {String mimeType = 'video/mp4'}) =>
+      _shareMedia(uri: uri, mimeType: mimeType, title: '发送到微信、抖音或其他应用');
 
   Future<void> _shareMedia({
     required String uri,
@@ -167,6 +216,7 @@ class PublishedLive {
     required this.coverUri,
     required this.displayName,
     required this.albumName,
+    required this.coverPath,
   });
 
   final String liveUri;
@@ -174,6 +224,7 @@ class PublishedLive {
   final String coverUri;
   final String displayName;
   final String albumName;
+  final String coverPath;
 
   factory PublishedLive.fromMap(Map<Object?, Object?> map) => PublishedLive(
     liveUri: map['liveUri'] as String? ?? '',
@@ -181,5 +232,6 @@ class PublishedLive {
     coverUri: map['coverUri'] as String? ?? '',
     displayName: map['displayName'] as String? ?? 'AfterFrame',
     albumName: map['albumName'] as String? ?? 'AfterFrame',
+    coverPath: map['coverPath'] as String? ?? '',
   );
 }

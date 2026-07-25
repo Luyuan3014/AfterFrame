@@ -43,6 +43,7 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
     _editorState = LiveEditorState(
       asset: widget.assets.first,
       mode: CreationMode.fromIndex(widget.initialMode),
+      assets: widget.assets,
     );
     _loadFrames();
   }
@@ -102,6 +103,13 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
         coverPath: preciseCover,
         keepAudio: _editorState.audioEnabled,
         loop: _editorState.loopEnabled,
+        playbackSpeed: _editorState.playbackSpeed,
+        enhancementEnabled: _editorState.enhancementEnabled,
+        collageAssets: _editorState.mode == CreationMode.motionCollage
+            ? widget.assets.take(3).toList(growable: false)
+            : const [],
+        collageLayout: _editorState.collageLayout.index,
+        collageAudioSourceIndex: _editorState.collageAudioSourceIndex,
       );
       if (!mounted) return;
       _editorState.setGenerateStatus(GenerateStatus.success);
@@ -112,7 +120,9 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
           LiveExport(
             path: published.liveUri,
             createdAt: DateTime.now(),
-            coverPath: preciseCover,
+            coverPath: published.coverPath.isEmpty
+                ? preciseCover
+                : published.coverPath,
             galleryUri: published.galleryUri,
             displayName: published.displayName,
           ),
@@ -320,7 +330,9 @@ class _LiveEditorScaffold extends StatelessWidget {
             )
           : TweenAnimationBuilder<double>(
               tween: Tween(begin: 0, end: 1),
-              duration: const Duration(milliseconds: 480),
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 480),
               curve: Curves.easeOutCubic,
               builder: (context, value, child) => Opacity(
                 opacity: value,
@@ -389,9 +401,12 @@ class _LiveEditorScaffold extends StatelessWidget {
                                   const SizedBox(height: 28),
                                   _Reveal(
                                     child: AnimatedSwitcher(
-                                      duration: const Duration(
-                                        milliseconds: 280,
-                                      ),
+                                      duration:
+                                          MediaQuery.disableAnimationsOf(
+                                            context,
+                                          )
+                                          ? Duration.zero
+                                          : const Duration(milliseconds: 280),
                                       child:
                                           state.mode == CreationMode.liveFrame
                                           ? const CoverSelector(
@@ -437,12 +452,16 @@ class _Reveal extends StatelessWidget {
   @override
   Widget build(BuildContext context) => TweenAnimationBuilder<double>(
     tween: Tween(begin: 0, end: 1),
-    duration: const Duration(milliseconds: 520),
+    duration: MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 520),
     curve: Curves.easeOutCubic,
     builder: (_, value, child) => Opacity(
       opacity: value,
       child: Transform.translate(
-        offset: Offset(0, 16 * (1 - value)),
+        offset: MediaQuery.disableAnimationsOf(context)
+            ? Offset.zero
+            : Offset(0, 16 * (1 - value)),
         child: child,
       ),
     ),

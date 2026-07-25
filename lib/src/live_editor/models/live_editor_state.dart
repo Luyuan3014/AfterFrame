@@ -13,27 +13,43 @@ enum CreationMode {
 
 enum GenerateStatus { idle, processing, success, failed }
 
-enum CoverSelectionMode { aiRecommended, manual }
+enum CoverSelectionMode { suggested, manual }
 
-enum CoverInsight { bestLight, sharpest, bestComposition }
+enum CoverSuggestion { laterMoment, middleMoment, earlierMoment }
+
+enum CollageLayout { splitVertical, splitHorizontal, featureGrid }
 
 /// Single source of truth for the Live creation workspace.
 ///
-/// Fields reserved for later phases (AI moments, templates and effects) should
-/// be added here instead of being owned by individual widgets.
+/// Future templates and effects should be added here instead of being owned by
+/// individual widgets.
 class LiveEditorState extends ChangeNotifier {
   LiveEditorState({
     required MediaAsset asset,
     required this.mode,
+    List<MediaAsset>? assets,
     this.audioEnabled = true,
     this.loopEnabled = false,
     this.enhancementEnabled = true,
-  }) : _asset = asset,
+  }) : assets = List.unmodifiable(assets ?? [asset]),
+       _asset = asset,
        videoPath = asset.uri,
        duration = asset.durationMs,
        endTime = asset.durationMs.clamp(1, 6000).toInt(),
        coverFrame = asset.durationMs.clamp(1, 6000).toInt() ~/ 2,
-       currentPosition = asset.durationMs.clamp(1, 6000).toInt() ~/ 2;
+       currentPosition = asset.durationMs.clamp(1, 6000).toInt() ~/ 2 {
+    if (mode == CreationMode.motionCollage) {
+      duration = this.assets
+          .take(3)
+          .map((item) => item.durationMs)
+          .reduce((value, element) => value < element ? value : element);
+      endTime = duration.clamp(1, 6000).toInt();
+      coverFrame = endTime ~/ 2;
+      currentPosition = coverFrame;
+    }
+  }
+
+  final List<MediaAsset> assets;
 
   MediaAsset _asset;
   MediaAsset get asset => _asset;
@@ -48,8 +64,10 @@ class LiveEditorState extends ChangeNotifier {
   bool audioEnabled;
   bool loopEnabled;
   bool enhancementEnabled;
-  CoverSelectionMode coverSelectionMode = CoverSelectionMode.aiRecommended;
-  CoverInsight selectedInsight = CoverInsight.bestLight;
+  CoverSelectionMode coverSelectionMode = CoverSelectionMode.suggested;
+  CoverSuggestion selectedSuggestion = CoverSuggestion.laterMoment;
+  CollageLayout collageLayout = CollageLayout.splitVertical;
+  int collageAudioSourceIndex = 0;
 
   /// UI-level extension point. Phase one deliberately does not pass speed to
   /// the native export engine, so video processing behavior remains unchanged.
@@ -72,33 +90,40 @@ class LiveEditorState extends ChangeNotifier {
 
   int get liveLength => endTime - startTime;
 
+  int get collageSourceCount => assets.length.clamp(1, 3);
+
   int get bestMomentTime {
     if (frames.isEmpty) return coverFrame;
-    return frames[_suggestedFrameIndex(CoverInsight.bestLight)].timeMs;
+    return frames[_suggestedFrameIndex(CoverSuggestion.laterMoment)].timeMs;
   }
 
   void replaceAsset(int index, MediaAsset value) {
     activeAssetIndex = index;
     _asset = value;
     videoPath = value.uri;
-    duration = value.durationMs;
+    duration = mode == CreationMode.motionCollage && assets.length > 1
+        ? assets
+              .take(3)
+              .map((item) => item.durationMs)
+              .reduce((current, next) => current < next ? current : next)
+        : value.durationMs;
     startTime = 0;
     endTime = duration.clamp(1, 6000).toInt();
     coverFrame = endTime ~/ 2;
     currentPosition = coverFrame;
     frames = const [];
     isLoading = true;
-    coverSelectionMode = CoverSelectionMode.aiRecommended;
-    selectedInsight = CoverInsight.bestLight;
+    coverSelectionMode = CoverSelectionMode.suggested;
+    selectedSuggestion = CoverSuggestion.laterMoment;
     generateStatus = GenerateStatus.idle;
     notifyListeners();
   }
 
   void setFrames(List<FrameSample> value) {
     frames = List.unmodifiable(value);
-    if (coverSelectionMode == CoverSelectionMode.aiRecommended &&
+    if (coverSelectionMode == CoverSelectionMode.suggested &&
         frames.isNotEmpty) {
-      _applyInsight(selectedInsight, notify: false);
+      _applySuggestion(selectedSuggestion, notify: false);
     }
     notifyListeners();
   }
@@ -111,6 +136,19 @@ class LiveEditorState extends ChangeNotifier {
   void setMode(CreationMode value) {
     if (mode == value) return;
     mode = value;
+    notifyListeners();
+  }
+
+  void setCollageLayout(CollageLayout value) {
+    if (collageLayout == value) return;
+    collageLayout = value;
+    notifyListeners();
+  }
+
+  void setCollageAudioSource(int value) {
+    final next = value.clamp(0, collageSourceCount - 1);
+    if (collageAudioSourceIndex == next) return;
+    collageAudioSourceIndex = next;
     notifyListeners();
   }
 
@@ -129,20 +167,20 @@ class LiveEditorState extends ChangeNotifier {
   void setCoverSelectionMode(CoverSelectionMode value) {
     if (coverSelectionMode == value) return;
     coverSelectionMode = value;
-    if (value == CoverSelectionMode.aiRecommended) {
-      _applyInsight(selectedInsight, notify: false);
+    if (value == CoverSelectionMode.suggested) {
+      _applySuggestion(selectedSuggestion, notify: false);
     }
     notifyListeners();
   }
 
-  void applyCoverInsight(CoverInsight value) {
-    selectedInsight = value;
-    coverSelectionMode = CoverSelectionMode.aiRecommended;
-    _applyInsight(value, notify: false);
+  void applyCoverSuggestion(CoverSuggestion value) {
+    selectedSuggestion = value;
+    coverSelectionMode = CoverSelectionMode.suggested;
+    _applySuggestion(value, notify: false);
     notifyListeners();
   }
 
-  void _applyInsight(CoverInsight value, {required bool notify}) {
+  void _applySuggestion(CoverSuggestion value, {required bool notify}) {
     if (frames.isNotEmpty) {
       final frame = frames[_suggestedFrameIndex(value)];
       coverFrame = frame.timeMs.clamp(startTime, endTime).toInt();
@@ -151,12 +189,12 @@ class LiveEditorState extends ChangeNotifier {
     if (notify) notifyListeners();
   }
 
-  int _suggestedFrameIndex(CoverInsight value) {
+  int _suggestedFrameIndex(CoverSuggestion value) {
     if (frames.length <= 1) return 0;
     final ratio = switch (value) {
-      CoverInsight.bestLight => .625,
-      CoverInsight.sharpest => .5,
-      CoverInsight.bestComposition => .375,
+      CoverSuggestion.laterMoment => .625,
+      CoverSuggestion.middleMoment => .5,
+      CoverSuggestion.earlierMoment => .375,
     };
     return ((frames.length - 1) * ratio).round();
   }

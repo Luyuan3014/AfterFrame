@@ -23,10 +23,12 @@ class MainActivity : FlutterActivity() {
     private val executor = Executors.newSingleThreadExecutor()
     private var pendingPermission: MethodChannel.Result? = null
     private lateinit var exportEngine: Media3ExportEngine
+    private lateinit var exportIndex: ExportIndex
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        exportEngine = Media3ExportEngine(this, executor)
+        exportIndex = ExportIndex(this)
+        exportEngine = Media3ExportEngine(this, executor, exportIndex)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result -> handle(call, result) }
     }
@@ -45,6 +47,7 @@ class MainActivity : FlutterActivity() {
                     call.argument<Number>("timeMs")!!.toLong(),
                 )
             }
+            "listExports" -> background(result) { exportIndex.listAndReconcile() }
             "exportLive" -> exportEngine.export(call, result)
             "shareMedia" -> {
                 try {
@@ -102,18 +105,8 @@ class MainActivity : FlutterActivity() {
         pendingPermission = null
     }
 
-    private fun videoPermissions(): Array<String> = when {
-        Build.VERSION.SDK_INT >= 34 -> arrayOf(
-            Manifest.permission.READ_MEDIA_VIDEO,
-            Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
-        )
-        Build.VERSION.SDK_INT >= 33 -> arrayOf(Manifest.permission.READ_MEDIA_VIDEO)
-        Build.VERSION.SDK_INT <= 28 -> arrayOf(
-            Manifest.permission.READ_EXTERNAL_STORAGE,
-            Manifest.permission.WRITE_EXTERNAL_STORAGE,
-        )
-        else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
-    }
+    private fun videoPermissions(): Array<String> =
+        AndroidMediaPolicy.videoPermissions(Build.VERSION.SDK_INT)
 
     private fun hasVideoAccess(): Boolean {
         if (Build.VERSION.SDK_INT >= 34 && ContextCompat.checkSelfPermission(
@@ -195,6 +188,7 @@ class MainActivity : FlutterActivity() {
 
     private fun thumbnail(uri: Uri): String {
         val directory = File(cacheDir, "afterframe/thumbnails").apply { mkdirs() }
+        pruneCache(directory, 48)
         val file = File(directory, "${uri.hashCode()}.jpg")
         if (file.exists() && file.length() > 0) return file.absolutePath
         val bitmap = if (Build.VERSION.SDK_INT >= 29) {
@@ -222,7 +216,9 @@ class MainActivity : FlutterActivity() {
                 MediaMetadataRetriever.OPTION_CLOSEST,
             ) ?: throw IllegalStateException("无法提取 ${timeMs}ms 的画面")
             val directory = File(cacheDir, "afterframe/frames").apply { mkdirs() }
+            pruneCache(directory, 128)
             val file = File(directory, "${uri.hashCode()}_$timeMs.jpg")
+            if (file.exists() && file.length() > 0) return file.absolutePath
             FileOutputStream(file).use {
                 bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, it)
             }
@@ -235,6 +231,11 @@ class MainActivity : FlutterActivity() {
 
     private fun metadataLong(retriever: MediaMetadataRetriever, key: Int): Long =
         retriever.extractMetadata(key)?.toLongOrNull() ?: 0L
+
+    private fun pruneCache(directory: File, limit: Int) {
+        val files = directory.listFiles()?.filter(File::isFile)?.sortedBy(File::lastModified) ?: return
+        files.take((files.size - limit).coerceAtLeast(0)).forEach(File::delete)
+    }
 
     private fun background(result: MethodChannel.Result, operation: () -> Any) {
         executor.execute {
@@ -251,6 +252,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         if (::exportEngine.isInitialized) exportEngine.cancel()
+        if (::exportIndex.isInitialized) exportIndex.close()
         executor.shutdown()
         super.onDestroy()
     }

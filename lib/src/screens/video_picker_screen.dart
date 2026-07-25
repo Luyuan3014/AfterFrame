@@ -77,13 +77,27 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
       if (index >= 0) {
         _selectedUris.removeAt(index);
       } else {
-        _selectedUris.add(item.uri);
+        if (widget.mode == 0) {
+          _selectedUris
+            ..clear()
+            ..add(item.uri);
+        } else if (_selectedUris.length < 3) {
+          _selectedUris.add(item.uri);
+        } else {
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _message('collageSourceLimit'),
+          );
+        }
       }
     });
   }
 
   Future<void> _submit() async {
-    if (_selectedUris.isEmpty || _submitting) return;
+    if (_selectedUris.isEmpty ||
+        (widget.mode == 1 && _selectedUris.length < 2) ||
+        _submitting) {
+      return;
+    }
     setState(() => _submitting = true);
     try {
       final assets = <MediaAsset>[];
@@ -385,7 +399,7 @@ class _SelectionBar extends StatelessWidget {
               ),
             ),
             FilledButton(
-              onPressed: loading ? null : onSubmit,
+              onPressed: loading || (mode == 1 && count < 2) ? null : onSubmit,
               style: FilledButton.styleFrom(
                 minimumSize: const Size(116, 48),
                 padding: const EdgeInsets.symmetric(horizontal: 22),

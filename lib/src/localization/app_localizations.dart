@@ -69,6 +69,17 @@ class AppLocalizations {
   static Set<String> keysFor(AppLanguage language) =>
       _translations[language]!.keys.toSet();
 
+  @visibleForTesting
+  static Map<String, Set<String>> placeholdersFor(AppLanguage language) =>
+      _translations[language]!.map(
+        (key, value) => MapEntry(
+          key,
+          RegExp(
+            r'\{([^}]+)\}',
+          ).allMatches(value).map((match) => match.group(1)!).toSet(),
+        ),
+      );
+
   String text(String key, [Map<String, Object> values = const {}]) {
     var value =
         (_translations[language] ?? _translations[AppLanguage.chinese]!)[key] ??
@@ -119,7 +130,8 @@ class AppLocalizations {
       'albumValue': 'AfterFrame',
       'pickVideo': '选择视频',
       'pickCollageVideos': '选择拼图视频',
-      'pickHint': '按选择顺序添加，可多选',
+      'pickHint': '单帧选择 1 段，拼图按顺序选择 2～3 段',
+      'collageSourceLimit': '拼图最多支持 3 段视频',
       'selectedCount': '已选择 {count} 段视频',
       'libraryEmpty': '媒体库里还没有视频',
       'libraryEmptyHint': '拍摄或保存视频后，它会出现在这里',
@@ -144,11 +156,11 @@ class AppLocalizations {
       'collageDescription': '多个瞬间自然流动',
       'coverMoment': '封面瞬间',
       'chooseCover': '选择封面瞬间',
-      'aiRecommended': 'AI 推荐',
+      'suggestedCovers': '时间候选',
       'manualSelect': '手动选择',
-      'bestLight': '光线最佳',
-      'sharpest': '最清晰',
-      'bestComposition': '构图最佳',
+      'laterMoment': '稍晚时刻',
+      'middleMoment': '中间时刻',
+      'earlierMoment': '稍早时刻',
       'momentTimeline': '瞬间时间轴',
       'findMoment': '发现精彩瞬间',
       'currentTime': '当前时间',
@@ -164,7 +176,8 @@ class AppLocalizations {
       'enhance': '增强',
       'speed': '速度',
       'chooseLayout': '选择拼图布局',
-      'collageMvp': '当前版本使用同一视频的不同时间切片；多视频同步将在下一阶段开放。',
+      'collageMvp': '素材从同一起点同步裁剪，选中音轨优先，其余音轨静音。',
+      'collageAudioSource': '主音轨素材',
       'createLive': '生成 AfterFrame Live',
       'creatingLive': '正在生成动态记忆…',
       'createdLive': 'AfterFrame Live 已生成',
@@ -221,7 +234,8 @@ class AppLocalizations {
       'albumValue': 'AfterFrame',
       'pickVideo': 'Choose Video',
       'pickCollageVideos': 'Choose Collage Videos',
-      'pickHint': 'Add in selection order · Multiple selection supported',
+      'pickHint': 'Choose 1 for Live Frame or 2–3 in order for Collage',
+      'collageSourceLimit': 'A collage supports up to 3 videos',
       'selectedCount': '{count} videos selected',
       'libraryEmpty': 'No videos in your library',
       'libraryEmptyHint': 'Videos you capture or save will appear here',
@@ -248,11 +262,11 @@ class AppLocalizations {
       'collageDescription': 'Multiple moments flow together',
       'coverMoment': 'COVER MOMENT',
       'chooseCover': 'Choose Cover Moment',
-      'aiRecommended': 'AI Recommended',
+      'suggestedCovers': 'Time Suggestions',
       'manualSelect': 'Manual Select',
-      'bestLight': 'Best Light',
-      'sharpest': 'Sharpest',
-      'bestComposition': 'Best Composition',
+      'laterMoment': 'Later Moment',
+      'middleMoment': 'Middle Moment',
+      'earlierMoment': 'Earlier Moment',
       'momentTimeline': 'MOMENT TIMELINE',
       'findMoment': 'Find the moment',
       'currentTime': 'CURRENT TIME',
@@ -269,7 +283,8 @@ class AppLocalizations {
       'speed': 'Speed',
       'chooseLayout': 'Choose Collage Layout',
       'collageMvp':
-          'This version uses moments from one video. Multi-video sync is coming next.',
+          'Sources share one trim range. The chosen primary audio track is kept and the others are muted.',
+      'collageAudioSource': 'Primary audio source',
       'createLive': 'Create AfterFrame Live',
       'creatingLive': 'Creating your living moment…',
       'createdLive': 'AfterFrame Live Created',

@@ -21,6 +21,29 @@ class _HomeShellState extends State<HomeShell> {
   final List<LiveExport> _exports = [];
   int _page = 0;
   bool _picking = false;
+  bool _loadingExports = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreExports();
+  }
+
+  Future<void> _restoreExports() async {
+    try {
+      final exports = await _engine.listExports();
+      if (mounted) {
+        setState(() {
+          _exports
+            ..clear()
+            ..addAll(exports);
+          _loadingExports = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingExports = false);
+    }
+  }
 
   Future<void> _create([int mode = 0]) async {
     if (_picking) return;
@@ -63,7 +86,10 @@ class _HomeShellState extends State<HomeShell> {
 
   Future<void> _shareExport(LiveExport export) async {
     try {
-      await _engine.shareExportVideo(export.galleryUri);
+      await _engine.shareExport(
+        export.galleryUri,
+        mimeType: export.shareMimeType,
+      );
     } catch (error) {
       if (mounted) _showError(error);
     }
@@ -81,6 +107,7 @@ class _HomeShellState extends State<HomeShell> {
             _Discover(onCreate: _create, loading: _picking),
             _Works(
               exports: _exports,
+              loading: _loadingExports,
               onCreate: () => _create(),
               onShare: _shareExport,
             ),
@@ -443,10 +470,12 @@ class _Works extends StatelessWidget {
     required this.exports,
     required this.onCreate,
     required this.onShare,
+    required this.loading,
   });
   final List<LiveExport> exports;
   final VoidCallback onCreate;
   final ValueChanged<LiveExport> onShare;
+  final bool loading;
 
   @override
   Widget build(BuildContext context) {
@@ -467,7 +496,13 @@ class _Works extends StatelessWidget {
           ),
           const SizedBox(height: 22),
           Expanded(
-            child: exports.isEmpty
+            child: loading
+                ? const Center(
+                    child: CircularProgressIndicator(
+                      color: AfterFrameColors.lime,
+                    ),
+                  )
+                : exports.isEmpty
                 ? _EmptyWorks(onCreate: onCreate)
                 : GridView.builder(
                     gridDelegate:
@@ -622,7 +657,7 @@ class _Profile extends StatelessWidget {
             l10n.text('originalQuality'),
           ),
           (Icons.folder_zip_outlined, l10n.text('liveContainer'), '.live'),
-          (Icons.info_outline_rounded, l10n.text('about'), '0.2.1'),
+          (Icons.info_outline_rounded, l10n.text('about'), '0.3.0'),
         ])
           Card(
             margin: const EdgeInsets.only(bottom: 10),

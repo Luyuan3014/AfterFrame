@@ -22,7 +22,7 @@ class _LivePreviewCardState extends State<LivePreviewCard>
   late final AnimationController _breath = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 1800),
-  )..repeat(reverse: true);
+  );
 
   VideoPlayerController? _controller;
   String? _activeUri;
@@ -37,11 +37,22 @@ class _LivePreviewCardState extends State<LivePreviewCard>
   bool? _lastAudioEnabled;
   double? _lastSpeed;
   LiveEditorState? _editorState;
+  bool? _reduceMotion;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     final state = LiveEditorScope.of(context);
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (_reduceMotion != reduceMotion) {
+      _reduceMotion = reduceMotion;
+      if (reduceMotion) {
+        _breath.stop();
+        _breath.value = 1;
+      } else {
+        _breath.repeat(reverse: true);
+      }
+    }
     _editorState = state;
     if (_activeUri != state.videoPath) {
       unawaited(_initialize(state));
