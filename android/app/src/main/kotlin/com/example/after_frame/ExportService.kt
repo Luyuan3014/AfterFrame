@@ -22,7 +22,7 @@ import java.util.concurrent.ExecutorService
 class ExportService(
     private val context: MainActivity,
     private val executor: ExecutorService,
-    private val renderer: FfmpegRenderEngine,
+    private val renderer: Media3RenderEngine,
     private val exportIndex: ExportIndex,
 ) {
     @Volatile private var exportInProgress = false
@@ -43,7 +43,7 @@ class ExportService(
                 context.runOnUiThread { result.success(output) }
             } catch (error: Exception) {
                 context.runOnUiThread {
-                    result.error("FFMPEG_EXPORT_FAILED", error.message ?: error.javaClass.simpleName, null)
+                    result.error("MEDIA3_EXPORT_FAILED", error.message ?: error.javaClass.simpleName, null)
                 }
             } finally {
                 exportInProgress = false
@@ -68,7 +68,7 @@ class ExportService(
 
     private fun packageAndPublish(call: MethodCall, mp4: File, work: File): Map<String, String> {
         val format = call.argument<String>("format") ?: "motionPhoto"
-        require(format in setOf("motionPhoto", "mp4", "gif", "webp")) { "不支持的导出格式：$format" }
+        require(format in setOf("motionPhoto", "mp4")) { "Media3 仅支持 Motion Photo 或 MP4 导出" }
         val cover = File(call.argument<String>("coverPath")!!)
         require(cover.isFile && cover.length() > 0L) { "导出封面不存在" }
         val safeName = (call.argument<String>("name") ?: "memory")
@@ -85,7 +85,7 @@ class ExportService(
             val output = if (format == "motionPhoto") {
                 publishMotionPhoto(call, mp4, cover, work, baseName, stamp, persistentCover)
             } else {
-                publishStandalone(format, mp4, work, baseName, stamp, persistentCover)
+                publishStandalone(format, mp4, baseName, stamp, persistentCover)
             }
             exportIndex.save(output)
             output
@@ -136,23 +136,20 @@ class ExportService(
     private fun publishStandalone(
         format: String,
         mp4: File,
-        work: File,
         baseName: String,
         stamp: Long,
         persistentCover: File,
     ): Map<String, String> {
-        val (extension, mimeType) = when (format) {
-            "mp4" -> "mp4" to "video/mp4"
-            "gif" -> "gif" to "image/gif"
-            "webp" -> "webp" to "image/webp"
-            else -> error("不支持的导出格式：$format")
-        }
-        val source = if (format == "mp4") mp4 else File(work, "$baseName.$extension").also {
-            renderer.renderAnimated(mp4, format, it)
-        }
-        val collection = if (format == "mp4") videoCollection() else imageCollection()
-        val directory = if (format == "mp4") Environment.DIRECTORY_MOVIES else Environment.DIRECTORY_PICTURES
-        val uri = publishMedia(source, "$baseName.$extension", mimeType, collection, directory)
+        require(format == "mp4") { "Unsupported standalone Media3 format: $format" }
+        val extension = "mp4"
+        val mimeType = "video/mp4"
+        val uri = publishMedia(
+            mp4,
+            "$baseName.$extension",
+            mimeType,
+            videoCollection(),
+            Environment.DIRECTORY_MOVIES,
+        )
         return output(uri, uri, uri, persistentCover, baseName, stamp, mimeType, format)
     }
 

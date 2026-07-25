@@ -22,14 +22,14 @@ class MainActivity : FlutterActivity() {
     private val permissionRequest = 4108
     private val executor = Executors.newSingleThreadExecutor()
     private var pendingPermission: MethodChannel.Result? = null
-    private lateinit var renderEngine: FfmpegRenderEngine
+    private lateinit var renderEngine: Media3RenderEngine
     private lateinit var exportService: ExportService
     private lateinit var exportIndex: ExportIndex
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         exportIndex = ExportIndex(this)
-        renderEngine = FfmpegRenderEngine(this)
+        renderEngine = Media3RenderEngine(this)
         exportService = ExportService(this, executor, renderEngine, exportIndex)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result -> handle(call, result) }
@@ -228,11 +228,7 @@ class MainActivity : FlutterActivity() {
         val file = File(directory, "${uri.hashCode()}.jpg")
         if (file.exists() && file.length() > 0L) return file.absolutePath
         if (Build.VERSION.SDK_INT >= 29) {
-            return runCatching {
-                saveBitmap(contentResolver.loadThumbnail(uri, Size(512, 512), null), file, 86)
-            }.getOrElse {
-                renderEngine.extractFrame(uri, 0, directory, uri.hashCode().toString())
-            }
+            return saveBitmap(contentResolver.loadThumbnail(uri, Size(512, 512), null), file, 86)
         }
         return extractFrameNative(uri, 0, file, closest = false)
     }
@@ -242,13 +238,7 @@ class MainActivity : FlutterActivity() {
         pruneCache(directory, 128)
         val file = File(directory, "${uri.hashCode()}_$timeMs.jpg")
         if (file.exists() && file.length() > 0L) return file.absolutePath
-        return runCatching { extractFrameNative(uri, timeMs, file, closest = true) }
-            .getOrElse {
-                // Some uncommon codecs cannot be decoded by MediaMetadataRetriever.
-                // FFmpeg remains a fallback, but its content URI is staged to a real
-                // local file by FfmpegRenderEngine before native code sees it.
-                renderEngine.extractFrame(uri, timeMs, directory, "${uri.hashCode()}_$timeMs")
-            }
+        return extractFrameNative(uri, timeMs, file, closest = true)
     }
 
     private fun extractFrameNative(uri: Uri, timeMs: Long, file: File, closest: Boolean): String {

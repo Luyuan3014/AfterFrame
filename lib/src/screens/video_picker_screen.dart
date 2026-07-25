@@ -106,7 +106,7 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
     try {
       // 直接使用已缓存的视频列表数据（listVideos 已通过 MediaStore
       // 返回了 uri / name / durationMs / width / height），避免再次
-      // 调用 inspectVideo → FFprobe：后者在 arm64 v8a 上通过
+      // 使用 Android MediaMetadataRetriever 读取素材信息。
       // getSafParameterForRead 处理 content URI 时可能 native crash。
       // 同时保持用户在 picker 中的选择顺序（对 collage 多选很重要）。
       final videoMap = {for (final v in _videos) v.uri: v};

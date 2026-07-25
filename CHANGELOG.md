@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0 - Media3-only media engine
+
+- 移除 FFmpegKit/FFprobe、相关 ProGuard/JNI 打包规则和约 67MB native AAR 依赖。
+- 新增 `Media3RenderEngine`，使用 Media3 1.10.1 Transformer 输出 H.264/AAC MP4。
+- 使用 Composition + VideoCompositorSettings 实现最多三路同步 Live 拼图、焦点裁切和单一主音轨。
+- 媒体解析、缩略图和封面抽帧统一使用 Android MediaStore/MediaMetadataRetriever/MediaExtractor。
+- 导出格式聚焦为 Motion Photo 与 MP4；移除非核心的 GIF/animated WebP 入口。
+- 以下 0.5.x 条目保留为历史记录，不代表当前实现。
+
 ## 0.5.0 - 2026-07-25
 
 - 按“Media3 负责看、FFmpeg 负责创造”重构：新增 `Media3PreviewEngine` 只读预览边界，将原生后端拆成 `FfmpegRenderEngine` 与 `ExportService`。

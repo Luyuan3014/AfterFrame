@@ -8,7 +8,7 @@ abstract interface class PreviewEngine {
 }
 
 /// Android's endorsed video_player implementation is backed by Media3 ExoPlayer.
-/// Keeping construction here prevents FFmpeg export concerns leaking into preview.
+/// Keeping construction here separates interactive preview from file export.
 final class Media3PreviewEngine implements PreviewEngine {
   const Media3PreviewEngine();
 

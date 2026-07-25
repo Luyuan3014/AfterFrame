@@ -2,8 +2,8 @@ import '../../../models/media_asset.dart';
 import '../../../services/media_engine.dart';
 import '../controllers/motion_canvas_controller.dart';
 
-/// UI-independent export orchestration. The Android adapter uses an FFmpeg
-/// filter graph and packages both a Motion Photo and share-ready MP4.
+/// UI-independent export orchestration. The Android adapter uses Media3
+/// Transformer and packages both a Motion Photo and share-ready MP4.
 class MotionCanvasExportService {
   const MotionCanvasExportService(this.engine);
 

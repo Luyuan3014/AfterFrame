@@ -148,8 +148,6 @@ class _ToolPanel extends StatelessWidget {
           label: (value) => switch (value) {
             MotionExportFormat.motionPhoto => 'Motion Photo',
             MotionExportFormat.mp4 => 'MP4',
-            MotionExportFormat.gif => 'GIF',
-            MotionExportFormat.webp => 'WebP',
           },
           onTap: controller.setExportFormat,
         ),

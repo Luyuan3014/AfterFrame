@@ -6,7 +6,7 @@ enum MotionStyle { cinematic, film, clean, dusk }
 
 enum MotionTool { layout, style, transition, music, export }
 
-enum MotionExportFormat { motionPhoto, mp4, gif, webp }
+enum MotionExportFormat { motionPhoto, mp4 }
 
 class MotionCanvasLayout {
   const MotionCanvasLayout({

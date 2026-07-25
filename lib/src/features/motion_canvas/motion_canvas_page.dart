@@ -171,8 +171,6 @@ class _MotionCanvasPageState extends State<MotionCanvasPage> {
       final zh = sheetContext.l10n.isChinese;
       final isMotionPhoto = published.format == 'motionPhoto';
       final formatLabel = switch (published.format) {
-        'gif' => 'GIF',
-        'webp' => 'WebP',
         _ => 'MP4',
       };
       return Padding(
