@@ -2,9 +2,11 @@ package com.example.after_frame
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.util.Size
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
@@ -12,6 +14,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.io.FileOutputStream
 import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
@@ -180,7 +183,38 @@ class MainActivity : FlutterActivity() {
                     null,
                 )?.use { if (it.moveToFirst()) it.getString(0) else null }
         }.getOrNull() ?: uri.lastPathSegment ?: "memory.mp4"
-        return mediaEngine.inspect(uri, name)
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(this, uri)
+            val rotation = metadataLong(
+                retriever,
+                MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION,
+            ).toInt()
+            var width = metadataLong(
+                retriever,
+                MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH,
+            ).toInt()
+            var height = metadataLong(
+                retriever,
+                MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT,
+            ).toInt()
+            if (rotation == 90 || rotation == 270) {
+                width = height.also { height = width }
+            }
+            mapOf(
+                "uri" to uri.toString(),
+                "name" to name,
+                "durationMs" to metadataLong(
+                    retriever,
+                    MediaMetadataRetriever.METADATA_KEY_DURATION,
+                ),
+                "width" to width,
+                "height" to height,
+                "rotation" to rotation,
+            )
+        } finally {
+            retriever.release()
+        }
     }
 
     private fun thumbnail(uri: Uri): String {
@@ -189,14 +223,69 @@ class MainActivity : FlutterActivity() {
         // smaller disk cache leaves Flutter holding paths that were already
         // deleted and presents those tiles as black until the process restarts.
         pruneCache(directory, 160)
-        return mediaEngine.extractFrame(uri, 0, directory, uri.hashCode().toString())
+        val file = File(directory, "${uri.hashCode()}.jpg")
+        if (file.exists() && file.length() > 0L) return file.absolutePath
+        if (Build.VERSION.SDK_INT >= 29) {
+            return runCatching {
+                saveBitmap(contentResolver.loadThumbnail(uri, Size(512, 512), null), file, 86)
+            }.getOrElse {
+                mediaEngine.extractFrame(uri, 0, directory, uri.hashCode().toString())
+            }
+        }
+        return extractFrameNative(uri, 0, file, closest = false)
     }
 
     private fun extractFrame(uri: Uri, timeMs: Long): String {
         val directory = File(cacheDir, "afterframe/frames").apply { mkdirs() }
         pruneCache(directory, 128)
-        return mediaEngine.extractFrame(uri, timeMs, directory, "${uri.hashCode()}_$timeMs")
+        val file = File(directory, "${uri.hashCode()}_$timeMs.jpg")
+        if (file.exists() && file.length() > 0L) return file.absolutePath
+        return runCatching { extractFrameNative(uri, timeMs, file, closest = true) }
+            .getOrElse {
+                // Some uncommon codecs cannot be decoded by MediaMetadataRetriever.
+                // FFmpeg remains a fallback, but its content URI is staged to a real
+                // local file by FfmpegMediaEngine before native code sees it.
+                mediaEngine.extractFrame(uri, timeMs, directory, "${uri.hashCode()}_$timeMs")
+            }
     }
+
+    private fun extractFrameNative(uri: Uri, timeMs: Long, file: File, closest: Boolean): String {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(this, uri)
+            val option = if (closest) {
+                MediaMetadataRetriever.OPTION_CLOSEST
+            } else {
+                MediaMetadataRetriever.OPTION_CLOSEST_SYNC
+            }
+            val bitmap = retriever.getFrameAtTime(timeMs * 1_000L, option)
+                ?: throw IllegalStateException("Unable to decode the video frame at ${timeMs}ms")
+            saveBitmap(bitmap, file, 92)
+        } finally {
+            retriever.release()
+        }
+    }
+
+    private fun saveBitmap(bitmap: android.graphics.Bitmap, file: File, quality: Int): String {
+        val pending = File(file.parentFile, ".${file.name}.${System.nanoTime()}.tmp")
+        try {
+            FileOutputStream(pending).use { output ->
+                check(bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, quality, output)) {
+                    "Unable to encode the video frame"
+                }
+            }
+            check(pending.length() > 0L && pending.renameTo(file)) {
+                "Unable to save the video frame"
+            }
+            return file.absolutePath
+        } finally {
+            pending.delete()
+            bitmap.recycle()
+        }
+    }
+
+    private fun metadataLong(retriever: MediaMetadataRetriever, key: Int): Long =
+        retriever.extractMetadata(key)?.toLongOrNull() ?: 0L
 
     private fun pruneCache(directory: File, limit: Int) {
         val files = directory.listFiles()?.filter(File::isFile)?.sortedBy(File::lastModified) ?: return

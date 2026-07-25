@@ -31,11 +31,30 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Android 15+ 16KB 页面对齐：兼容未对齐的原生库，避免 .so 加载时崩溃
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+        // 多 AAR 同名 .so 冲突处理：取第一个可用的，避免重复类定义
+        pickFirsts += listOf(
+            "**/libc++_shared.so",
+            "**/libavcodec.so",
+            "**/libavfilter.so",
+            "**/libavformat.so",
+            "**/libavutil.so",
+            "**/libswresample.so",
+            "**/libswscale.so",
+        )
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = false   // 避免 R8 误删 JNI 桥接
+            isShrinkResources = false
         }
     }
 }
@@ -45,7 +64,7 @@ flutter {
 }
 
 dependencies {
-    // FFmpeg 8.1.1 Android build with 16 KB page support and every ABI used by
+    // FFmpeg Kit Android build with 16 KB page support and every ABI used by
     // Flutter's default --split-per-abi command.
     implementation("com.antonkarpenko:ffmpeg-kit-full:2.2.1")
     implementation("com.arthenica:smart-exception-java:0.2.1")
