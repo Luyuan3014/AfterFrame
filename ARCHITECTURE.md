@@ -9,37 +9,35 @@ AfterFrame 是 Android 优先的视频转动态记忆工具。单张 Live 与 Mo
 
 Motion Canvas 不把视频当作网格卡片。模板只初始化可编辑参数，用户始终拥有素材顺序、范围、焦点、风格和转场的控制权。
 
-## 分层
+## 0.5 分层
 
 ```text
-Flutter UI
-  MotionCanvasPage
-  ├── MotionCanvasRenderer        连续画布、动态背景、多路预览
-  ├── MotionClipTrack             选择、长按排序
-  └── CreativeToolDock            Layout / Style / Transition / Music / Export
-            │
+Flutter / Motion Editor
+  MotionCanvasPage + MotionCanvasController
+                    │
 Motion Canvas Engine
-  MotionCanvasController          单一状态源 + Master Timeline
-  MotionClip                      素材、独立入点/出点、焦点、主体语义
-  MotionCanvasLayout              1080px 画布与高度约束
-  VideoCropEngine                 可替换的主体焦点规划边界
-  TransitionEngine                预览转场语言
-            │
-Export Orchestration
-  MotionCanvasExportService       冻结作品参数、提取封面、调用平台适配器
-            │
-Platform Media Adapter
-  MediaEngine / MethodChannel com.afterframe/media_engine
-            │
-Android Media Engine
-  FfmpegMediaEngine              当前可运行后端
-  ├── FFprobe                     时长、尺寸、旋转与音轨探测
-  ├── FFmpeg filter graph         独立裁剪、速度、焦点裁剪、合成与效果
-  ├── h264_mediacodec + AAC        30fps MP4 编码
-  └── Motion Photo Packager       JPEG XMP + trailing MP4
+  MotionClip + Layout + Crop + Transition + Master Timeline
+                    │
+        ┌───────────┴───────────┐
+        │                       │
+Preview Engine             Render Engine
+Media3PreviewEngine        FfmpegRenderEngine
+video_player_android       FFmpeg filter graph + FFprobe
+        │                       │
+        └───────────┬───────────┘
+                    │
+Export Service
+MotionCanvasExportService → MethodChannel → Android ExportService
+                    │
+        ┌───────────┴──────────────────┐
+        │                              │
+Android Motion Photo             MP4 / GIF / WebP
+JPEG + XMP + trailing MP4        MediaStore publication
 ```
 
-FFmpeg Engine 位于 Platform Media Adapter 之后，Flutter 只提交冻结的作品参数，不拼装命令。Android 端把 `content://` 转为 FFmpeg SAF 输入，统一完成媒体探测、精确抽帧、逐帧裁剪、变速、等比焦点裁剪、多路布局、音轨选择、效果和编码，再复用独立的 Motion Photo 打包与 MediaStore 发布层。
+边界是强制的：`Media3PreviewEngine` 只创建、同步和销毁 Android Media3 ExoPlayer 播放器；它不生成文件。`FfmpegRenderEngine` 只把冻结的编辑参数渲染成 MP4/GIF/WebP 字节；它不拥有 UI 和 MediaStore。Android `ExportService` 独占任务互斥、临时目录、Motion Photo 打包、系统媒体库发布、作品索引和分享。
+
+`video_player_android` 是 Flutter 官方 endorsed Android 实现，当前版本使用 Media3 ExoPlayer。因此预览仍保持 Flutter 纹理合成能力，同时明确满足“Media3 负责看”。封面精确抽帧属于作品生成输入，系统缩略图优先走 MediaStore，罕见编码回退才进入 FFmpeg。
 
 ## 目录
 
@@ -52,6 +50,8 @@ lib/src/features/motion_canvas/
 ├── models/
 │   ├── motion_canvas_layout.dart
 │   └── motion_clip.dart
+├── preview/
+│   └── preview_engine.dart        Media3 只读预览边界
 ├── renderer/
 │   ├── motion_canvas_renderer.dart
 │   ├── transition_engine.dart
@@ -60,7 +60,28 @@ lib/src/features/motion_canvas/
 │   ├── clip_track.dart
 │   └── creative_tools.dart
 └── motion_canvas_page.dart
+
+android/app/src/main/kotlin/com/example/after_frame/
+├── FfmpegRenderEngine.kt          FFmpeg 合成和动画编码
+├── ExportService.kt               导出任务、发布和 Motion Photo 打包
+├── ExportIndex.kt                 可恢复作品索引
+└── MainActivity.kt                MethodChannel 适配器
 ```
+
+## 导出格式
+
+| 格式 | 创建引擎 | 发布结果 |
+| --- | --- | --- |
+| Android Motion Photo | FFmpeg MP4 + `MotionPhotoPackager` | `DCIM/AfterFrame/*MP.jpg`，同时保留聊天兼容私有 MP4 |
+| MP4 | FFmpeg H.264/AAC | `Movies/AfterFrame/*.mp4` |
+| GIF | FFmpeg palettegen/paletteuse | `Pictures/AfterFrame/*.gif` |
+| animated WebP | FFmpeg `libwebp_anim` | `Pictures/AfterFrame/*.webp` |
+
+这里的 Live 图指 Android Motion Photo，不冒充 Apple Live Photo。Apple Live Photo 仍需要 iOS 端 JPEG/HEIC + MOV 资产配对和 Photos 写入。
+
+## ABI 与运行验证
+
+release 使用 Flutter 原生 `--split-per-abi` 生成 `armeabi-v7a`、`arm64-v8a`、`x86_64` 三包。每包必须包含同 ABI 的 `libffmpegkit.so`、`libavcodec.so`、`libavformat.so`、`libavfilter.so`、`libavutil.so`、`libswscale.so`、`libswresample.so`。最终 arm64-v8a 与 x86_64 包内全部 FFmpeg 相关 ELF 的 LOAD alignment 已核对为 `0x4000`（16KB）；armeabi-v7a 为 `0x1000`。设备端测试执行视频编码、FFprobe、JPEG 抽帧、GIF、animated WebP，并验证 Motion Photo XMP 和尾部 MP4 逐字节一致。
 
 ## Master Timeline
 
@@ -112,14 +133,15 @@ clipHeight = clamp(naturalHeight, 360, 1120)
 当前可交付：
 
 - Android Motion Photo：单个 JPEG 文件，XMP 声明 Motion Photo 与视频长度，JPEG EOI 后紧随 MP4。
-- MP4：保存在 app 私有目录，通过 FileProvider 分享，避免在相册产生重复视频。
+- Motion Photo 的聊天兼容 MP4：保存在 app 私有目录，通过 FileProvider 分享，避免相册重复项。
+- 独立 MP4：发布到 `Movies/AfterFrame`。
+- GIF / animated WebP：由 FFmpeg 编码并发布到 `Pictures/AfterFrame`。
 
 当前不可交付：
 
 - Apple Live Photo：需要 JPEG/HEIC + MOV 的 Apple 资产标识与 iOS Photos 写入链路，Android-only 工程不能等同支持。
-- GIF/WebP：格式枚举已存在，但 UI 标为 Soon 且不可选，避免输出伪格式。
 - HDR 原始色彩保证：当前 H.264/yuv420p 输出明确是 SDR 兼容路径；HDR tone mapping、10-bit 输出和元数据保留必须另建策略并逐设备验证。
 
 ## 测试边界
 
-自动化验证覆盖 Dart 静态分析、状态约束、时间轴、模板焦点、排序、裁剪与 MethodChannel 参数。Gradle 编译验证 Kotlin 契约。以下结论不能由编译推导：OEM 相册能否识别、真实设备多路预览性能、微信/抖音接收效果、HDR 色彩与 FFmpeg 输出一致性。
+自动化验证覆盖 Dart 静态分析、状态约束、时间轴、模板焦点、排序、裁剪与 MethodChannel 参数。设备端测试在 x86_64 Android 16 模拟器覆盖 FFmpeg 编码、FFprobe、抽帧、GIF/WebP 与 Motion Photo 结构。以下结论不能由编译或单一模拟器推导：两种 ARM ABI 的真机运行、OEM 相册识别、真实设备多路预览性能、微信/抖音接收效果、HDR 色彩一致性。

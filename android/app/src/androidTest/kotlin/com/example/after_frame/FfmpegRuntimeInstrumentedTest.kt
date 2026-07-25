@@ -6,6 +6,8 @@ import com.antonkarpenko.ffmpegkit.FFmpegKit
 import com.antonkarpenko.ffmpegkit.FFprobeKit
 import com.antonkarpenko.ffmpegkit.ReturnCode
 import java.io.File
+import java.io.RandomAccessFile
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -58,6 +60,28 @@ class FfmpegRuntimeInstrumentedTest {
             )
             assertTrue(extract.allLogsAsString, ReturnCode.isSuccess(extract.returnCode))
             assertTrue(frame.length() > 0L)
+
+            val renderer = FfmpegRenderEngine(context)
+            val gif = File(directory, "fixture.gif")
+            val webp = File(directory, "fixture.webp")
+            renderer.renderAnimated(video, "gif", gif)
+            renderer.renderAnimated(video, "webp", webp)
+            assertTrue(gif.length() > 0L)
+            assertTrue(webp.length() > 0L)
+
+            val motionPhoto = File(directory, "fixtureMP.jpg")
+            MotionPhotoPackager.write(frame, video, motionPhoto, 500_000L, true)
+            val trailer = ByteArray(video.length().toInt())
+            RandomAccessFile(motionPhoto, "r").use { file ->
+                file.seek(file.length() - trailer.size)
+                file.readFully(trailer)
+            }
+            assertArrayEquals(video.readBytes(), trailer)
+            val headerBytes = ByteArray(minOf(motionPhoto.length(), 32_768L).toInt())
+            motionPhoto.inputStream().use { it.read(headerBytes) }
+            val header = headerBytes.toString(Charsets.ISO_8859_1)
+            assertTrue(header.contains("Camera:MotionPhoto=\"1\""))
+            assertTrue(header.contains("Item:Length=\"${video.length()}\""))
         } finally {
             directory.deleteRecursively()
         }

@@ -74,8 +74,8 @@ flutter build apk --release --split-per-abi
 - 补充 FFmpeg 导出进度、后台恢复以及 HDR/色彩空间策略
 - 增加草稿持久化与作品删除/清理
 - 为多视频拼图增加独立时间轴偏移与实时组合预览
-- 提供 GIF/静态图兼容导出
+- 在 ARM 真机验证 GIF/WebP 编码性能与常见接收端兼容性
 - 补充后台任务、导出进度、取消、存储清理和低内存保护
 - 将 applicationId 从示例包名迁移为正式品牌域名
 
-> 说明：当前探测、抽帧、裁剪、变速、增强和多素材合成均由 FFmpeg 负责。为保证非关键帧入点准确，导出会解码所选范围并重新编码，而不是做关键帧对齐的流复制。导出优先使用 Android MediaCodec H.264；设备硬件编码器不可用时会自动改用 FFmpeg 内置 MPEG-4 软件编码，避免任务直接失败。所用 `ffmpeg-kit-full` 不启用 GPL 编码器；若改用包含 `libx264` 的 Full-GPL 包，整个应用的分发许可也必须相应评估。
+> 说明：预览播放由 Media3 ExoPlayer 负责；裁剪、变速、增强、多素材合成和多格式创建由 FFmpeg 负责。为保证非关键帧入点准确，导出会解码所选范围并重新编码，而不是做关键帧对齐的流复制。导出优先使用 Android MediaCodec H.264；设备硬件编码器不可用时会自动改用 FFmpeg 内置 MPEG-4 软件编码。当前 `ffmpeg-kit-full` 的 Maven POM 同时声明 LGPL 3.0 与 GPL 3.0，正式分发前必须完成依赖与实际启用组件的许可证审计。

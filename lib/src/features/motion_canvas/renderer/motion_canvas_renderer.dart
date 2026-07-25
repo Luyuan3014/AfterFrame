@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -8,12 +7,18 @@ import 'package:video_player/video_player.dart';
 import '../../../theme.dart';
 import '../controllers/motion_canvas_controller.dart';
 import '../models/motion_clip.dart';
+import '../preview/preview_engine.dart';
 import 'transition_engine.dart';
 
 class MotionCanvasRenderer extends StatefulWidget {
-  const MotionCanvasRenderer({super.key, required this.controller});
+  const MotionCanvasRenderer({
+    super.key,
+    required this.controller,
+    this.previewEngine = const Media3PreviewEngine(),
+  });
 
   final MotionCanvasController controller;
+  final PreviewEngine previewEngine;
 
   @override
   State<MotionCanvasRenderer> createState() => _MotionCanvasRendererState();
@@ -41,17 +46,6 @@ class _MotionCanvasRendererState extends State<MotionCanvasRenderer> {
     }
   }
 
-  VideoPlayerController _createPlayer(String source) {
-    final uri = Uri.parse(source);
-    if (uri.scheme == 'content') return VideoPlayerController.contentUri(uri);
-    if (uri.scheme == 'http' || uri.scheme == 'https') {
-      return VideoPlayerController.networkUrl(uri);
-    }
-    return VideoPlayerController.file(
-      File(uri.scheme == 'file' ? uri.toFilePath() : source),
-    );
-  }
-
   Future<void> _ensurePlayers() async {
     final expected = widget.controller.clips.map((clip) => clip.id).toSet();
     final obsolete = _players.keys
@@ -62,7 +56,7 @@ class _MotionCanvasRendererState extends State<MotionCanvasRenderer> {
     }
     for (final clip in widget.controller.clips) {
       if (_players.containsKey(clip.id)) continue;
-      final player = _createPlayer(clip.asset.uri);
+      final player = widget.previewEngine.create(clip.asset.uri);
       _players[clip.id] = player;
       try {
         await player.initialize();

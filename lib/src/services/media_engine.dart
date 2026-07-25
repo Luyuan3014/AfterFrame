@@ -181,6 +181,7 @@ class MediaEngine {
     int motionTransition = 0,
     List<double> cropFocusX = const [],
     List<double> cropFocusY = const [],
+    String format = 'motionPhoto',
   }) async {
     try {
       final data = await _channel
@@ -203,6 +204,7 @@ class MediaEngine {
             'motionTransition': motionTransition,
             'cropFocusX': cropFocusX,
             'cropFocusY': cropFocusY,
+            'format': format,
             'width': asset.width,
             'height': asset.height,
           });
@@ -258,6 +260,8 @@ class PublishedLive {
     required this.displayName,
     required this.albumName,
     required this.coverPath,
+    required this.shareMimeType,
+    required this.format,
   });
 
   final String liveUri;
@@ -266,6 +270,8 @@ class PublishedLive {
   final String displayName;
   final String albumName;
   final String coverPath;
+  final String shareMimeType;
+  final String format;
 
   factory PublishedLive.fromMap(Map<Object?, Object?> map) => PublishedLive(
     liveUri: map['liveUri'] as String? ?? '',
@@ -274,5 +280,7 @@ class PublishedLive {
     displayName: map['displayName'] as String? ?? 'AfterFrame',
     albumName: map['albumName'] as String? ?? 'AfterFrame',
     coverPath: map['coverPath'] as String? ?? '',
+    shareMimeType: map['shareMimeType'] as String? ?? 'video/mp4',
+    format: map['format'] as String? ?? 'motionPhoto',
   );
 }

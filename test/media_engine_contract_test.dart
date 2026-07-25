@@ -61,12 +61,14 @@ void main() {
       motionTransition: 2,
       cropFocusX: const [.5, .44],
       cropFocusY: const [.35, .52],
+      format: 'webp',
     );
 
     expect(captured?.method, 'exportLive');
     final arguments = captured?.arguments as Map<Object?, Object?>;
     expect(arguments['playbackSpeed'], 1.5);
     expect(arguments['enhancementEnabled'], isTrue);
+    expect(arguments['format'], 'webp');
     expect(arguments['collageUris'], [asset.uri, second.uri]);
     expect(arguments['collageLayout'], 2);
     expect(arguments['collageAudioSourceIndex'], 1);

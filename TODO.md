@@ -2,6 +2,7 @@
 
 ## Motion Canvas P0 — 导出所见即所得
 
+- [x] 分离 Media3 Preview Engine、FFmpeg Render Engine 与 Android Export Service，禁止预览层承担文件创造。
 - [x] 接入 Maven Central 的 FFmpeg 8.1.1 Android 包；AAR 约 67MB，支持 armeabi-v7a/arm64-v8a/x86/x86_64，冷启动与解压成本待真机基准。
 - [ ] 定义版本化 `MotionCanvasExportSpec` JSON，包含画布、Clip、裁剪焦点、背景、转场、色彩、音轨和输出格式。
 - [ ] 用 FFmpeg filter graph 实现 1080px 连续画布、40px 动态模糊背景、Soft Blur Blend、Soft Fade、Light Leak、Film Grain 与 Gradient Blend。
@@ -29,14 +30,18 @@
 
 ## Motion Canvas P1 — 格式与色彩
 
-- [ ] 实现 GIF 调色板、帧率、循环和尺寸策略。
-- [ ] 实现 animated WebP 编码与兼容性测试。
+- [x] 实现 GIF 调色板、15fps、循环和 720px 尺寸策略，并通过 x86_64 设备端编码测试。
+- [x] 实现 animated WebP 20fps、循环和 1080px 尺寸策略，并通过 x86_64 设备端编码测试。
 - [ ] 若建立 iOS target，实现真正的 Apple Live Photo 资源配对与 Photos 写入；Android 不显示伪 Live Photo 选项。
 - [ ] 建立 SDR / HLG / HDR10 输入矩阵，明确 tone mapping、10-bit 编码和元数据保留策略。
 - [ ] 原始色彩模式禁用非必要 HSL effect，并记录色彩空间转换。
 
 ## 发布前验证
 
+- [x] 构建 armeabi-v7a、arm64-v8a、x86_64 三个 release APK，并核对每包目标 ABI 的 FFmpeg JNI 库。
+- [x] 核对 arm64-v8a 与 x86_64 的 FFmpeg 相关 native 库为 16KB ELF LOAD 对齐。
+- [x] 在 x86_64 Android 16 模拟器运行 FFmpeg 编码、FFprobe、抽帧、GIF/WebP 与 Motion Photo 结构测试。
+- [ ] 在 armeabi-v7a 与 arm64-v8a 真机分别执行同一套 `FfmpegRuntimeInstrumentedTest`；构建成功不能代替目标 CPU 运行验证。
 - [ ] Pixel、Samsung、小米真机验证 2/3 路混合比例视频的同步、温度、内存与掉帧。
 - [ ] Pixel / Samsung Gallery / 小米相册验证 Motion Photo 识别与播放。
 - [ ] 微信、抖音分别验证 MP4 发送、接收、声音、画幅和二次压缩结果。

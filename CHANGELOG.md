@@ -1,11 +1,22 @@
 # Changelog
 
+## 0.5.0 - 2026-07-25
+
+- 按“Media3 负责看、FFmpeg 负责创造”重构：新增 `Media3PreviewEngine` 只读预览边界，将原生后端拆成 `FfmpegRenderEngine` 与 `ExportService`。
+- Flutter Motion Editor 只提交冻结的画布参数；FFmpeg 负责裁剪、变速、多路合成、音频、MP4 以及 GIF/WebP 动画编码；Export Service 负责任务互斥、发布、索引与分享。
+- Motion Canvas 的 MP4、GIF、animated WebP 选项由占位状态升级为真实可选导出，并分别写入 `Movies/AfterFrame` 或 `Pictures/AfterFrame`。
+- Motion Photo 打包器独立化，继续使用 Android Motion Photo 1.0 单 JPEG、XMP Container Directory 与 trailing MP4；运行时测试会校验 XMP 视频长度和尾部 MP4 字节。
+- `flutter build apk --release --split-per-abi` 成功生成 armeabi-v7a、arm64-v8a、x86_64 三个 release APK，且每包检查到目标 ABI 的 FFmpeg/FFprobe JNI 库。
+- arm64-v8a 与 x86_64 包内全部 FFmpeg 相关 ELF LOAD segment 均为 `0x4000` 对齐；armeabi-v7a 为 `0x1000`。
+- x86_64 Android 16 模拟器实际通过 FFmpeg 编码、FFprobe、抽帧、GIF、animated WebP 和 Motion Photo 打包测试；两种 ARM 构建通过，仍需对应 ARM 真机运行矩阵。
+- 版本提升到 `0.5.0+5`。
+
 ## 0.4.1 - 2026-07-25
 
 - Android 媒体后端由 Media3 完整迁移到 FFmpeg/FFprobe：媒体解析、缩略图、精确抽帧、裁剪、变速、增强、音轨和多素材合成使用同一引擎。
 - 多素材导出开始实际消费布局、独立入出点、裁剪焦点、音轨来源和转场参数；输出统一为 30fps MediaCodec H.264/AAC MP4，并用 FFprobe 拒绝无视频轨的空壳文件。
 - 保留并修正 Motion Photo 打包层，变速作品的 presentation timestamp 会同步换算。
-- 使用支持 Android 15 16KB 页面的 FFmpeg 8.1.1 Android 包，覆盖 armeabi-v7a/arm64-v8a/x86/x86_64，并使用非 GPL 的 MediaCodec H.264。
+- 使用 FFmpeg 8.1.1 Android 包，覆盖 armeabi-v7a/arm64-v8a/x86/x86_64；当前输出优先使用 MediaCodec H.264，但依赖 POM 同时声明 LGPL/GPL，发布前必须完成许可证清单审计。
 - 移除与 Flutter `--split-per-abi` 冲突的手动 `ndk.abiFilters`，原始 release 拆包命令可直接构建三种默认 ABI。
 - 新增设备端 FFmpeg 编码、FFprobe 解析与 JPEG 抽帧运行时测试。
 

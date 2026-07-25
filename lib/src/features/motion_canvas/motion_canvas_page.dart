@@ -169,6 +169,12 @@ class _MotionCanvasPageState extends State<MotionCanvasPage> {
     showDragHandle: true,
     builder: (sheetContext) {
       final zh = sheetContext.l10n.isChinese;
+      final isMotionPhoto = published.format == 'motionPhoto';
+      final formatLabel = switch (published.format) {
+        'gif' => 'GIF',
+        'webp' => 'WebP',
+        _ => 'MP4',
+      };
       return Padding(
         padding: const EdgeInsets.fromLTRB(24, 8, 24, 30),
         child: Column(
@@ -186,9 +192,13 @@ class _MotionCanvasPageState extends State<MotionCanvasPage> {
             ),
             const SizedBox(height: 8),
             Text(
-              zh
-                  ? 'Motion Photo 已进入 AfterFrame 相册，同时保留聊天兼容的 MP4。'
-                  : 'A Motion Photo is in your AfterFrame album, with a chat-safe MP4 copy.',
+              isMotionPhoto
+                  ? (zh
+                        ? 'Motion Photo 已进入 AfterFrame 相册，同时保留聊天兼容的 MP4。'
+                        : 'A Motion Photo is in your AfterFrame album, with a chat-safe MP4 copy.')
+                  : (zh
+                        ? '$formatLabel 已保存到 AfterFrame 媒体目录。'
+                        : '$formatLabel was saved to the AfterFrame media folder.'),
               textAlign: TextAlign.center,
               style: const TextStyle(
                 color: AfterFrameColors.muted,
@@ -199,9 +209,14 @@ class _MotionCanvasPageState extends State<MotionCanvasPage> {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: () async => widget.engine.shareVideo(published),
+                onPressed: () async => isMotionPhoto
+                    ? widget.engine.shareVideo(published)
+                    : widget.engine.shareExport(
+                        published.galleryUri,
+                        mimeType: published.shareMimeType,
+                      ),
                 icon: const Icon(Icons.send_rounded),
-                label: Text(zh ? '发送 MP4' : 'Share MP4'),
+                label: Text(zh ? '发送 $formatLabel' : 'Share $formatLabel'),
               ),
             ),
             TextButton(

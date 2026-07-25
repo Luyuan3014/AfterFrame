@@ -37,6 +37,7 @@ class MotionCanvasExportService {
       motionTransition: canvas.transition.index,
       cropFocusX: canvas.clips.map((clip) => clip.focus.x).toList(),
       cropFocusY: canvas.clips.map((clip) => clip.focus.y).toList(),
+      format: canvas.exportFormat.name,
     );
     return (published: published, coverPath: coverPath);
   }
@@ -51,4 +52,5 @@ LiveExport toLiveExport(PublishedLive published, String fallbackCover) =>
           : published.coverPath,
       galleryUri: published.galleryUri,
       displayName: published.displayName,
+      shareMimeType: published.shareMimeType,
     );

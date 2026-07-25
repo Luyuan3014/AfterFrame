@@ -22,13 +22,15 @@ class MainActivity : FlutterActivity() {
     private val permissionRequest = 4108
     private val executor = Executors.newSingleThreadExecutor()
     private var pendingPermission: MethodChannel.Result? = null
-    private lateinit var mediaEngine: FfmpegMediaEngine
+    private lateinit var renderEngine: FfmpegRenderEngine
+    private lateinit var exportService: ExportService
     private lateinit var exportIndex: ExportIndex
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         exportIndex = ExportIndex(this)
-        mediaEngine = FfmpegMediaEngine(this, executor, exportIndex)
+        renderEngine = FfmpegRenderEngine(this)
+        exportService = ExportService(this, executor, renderEngine, exportIndex)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result -> handle(call, result) }
     }
@@ -58,10 +60,10 @@ class MainActivity : FlutterActivity() {
                 // Always return null for void operations.
                 null
             }
-            "exportLive" -> mediaEngine.export(call, result)
+            "exportLive", "exportMotion" -> exportService.export(call, result)
             "shareMedia" -> {
                 try {
-                    mediaEngine.share(
+                    exportService.share(
                         Uri.parse(call.argument<String>("uri")!!),
                         call.argument<String>("mimeType")!!,
                         call.argument<String>("title") ?: "分享 AfterFrame",
@@ -229,7 +231,7 @@ class MainActivity : FlutterActivity() {
             return runCatching {
                 saveBitmap(contentResolver.loadThumbnail(uri, Size(512, 512), null), file, 86)
             }.getOrElse {
-                mediaEngine.extractFrame(uri, 0, directory, uri.hashCode().toString())
+                renderEngine.extractFrame(uri, 0, directory, uri.hashCode().toString())
             }
         }
         return extractFrameNative(uri, 0, file, closest = false)
@@ -244,8 +246,8 @@ class MainActivity : FlutterActivity() {
             .getOrElse {
                 // Some uncommon codecs cannot be decoded by MediaMetadataRetriever.
                 // FFmpeg remains a fallback, but its content URI is staged to a real
-                // local file by FfmpegMediaEngine before native code sees it.
-                mediaEngine.extractFrame(uri, timeMs, directory, "${uri.hashCode()}_$timeMs")
+                // local file by FfmpegRenderEngine before native code sees it.
+                renderEngine.extractFrame(uri, timeMs, directory, "${uri.hashCode()}_$timeMs")
             }
     }
 
@@ -306,7 +308,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
-        if (::mediaEngine.isInitialized) mediaEngine.cancel()
+        if (::exportService.isInitialized) exportService.cancel()
         if (::exportIndex.isInitialized) exportIndex.close()
         executor.shutdown()
         super.onDestroy()
