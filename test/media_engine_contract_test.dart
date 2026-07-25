@@ -56,6 +56,11 @@ void main() {
       collageAssets: const [asset, second],
       collageLayout: 2,
       collageAudioSourceIndex: 1,
+      collageStartMs: const [200, 400],
+      collageEndMs: const [4200, 4000],
+      motionTransition: 2,
+      cropFocusX: const [.5, .44],
+      cropFocusY: const [.35, .52],
     );
 
     expect(captured?.method, 'exportLive');
@@ -65,6 +70,9 @@ void main() {
     expect(arguments['collageUris'], [asset.uri, second.uri]);
     expect(arguments['collageLayout'], 2);
     expect(arguments['collageAudioSourceIndex'], 1);
+    expect(arguments['collageStartMs'], [200, 400]);
+    expect(arguments['collageEndMs'], [4200, 4000]);
+    expect(arguments['motionTransition'], 2);
   });
 
   test('deleteExport forwards the durable work identity', () async {

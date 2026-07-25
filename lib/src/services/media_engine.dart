@@ -176,6 +176,11 @@ class MediaEngine {
     List<MediaAsset> collageAssets = const [],
     int collageLayout = 0,
     int collageAudioSourceIndex = 0,
+    List<int> collageStartMs = const [],
+    List<int> collageEndMs = const [],
+    int motionTransition = 0,
+    List<double> cropFocusX = const [],
+    List<double> cropFocusY = const [],
   }) async {
     try {
       final data = await _channel
@@ -193,6 +198,11 @@ class MediaEngine {
             'collageUris': collageAssets.map((item) => item.uri).toList(),
             'collageLayout': collageLayout,
             'collageAudioSourceIndex': collageAudioSourceIndex,
+            'collageStartMs': collageStartMs,
+            'collageEndMs': collageEndMs,
+            'motionTransition': motionTransition,
+            'cropFocusX': cropFocusX,
+            'cropFocusY': cropFocusY,
             'width': asset.width,
             'height': asset.height,
           });

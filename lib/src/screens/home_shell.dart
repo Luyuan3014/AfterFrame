@@ -6,6 +6,7 @@ import '../models/media_asset.dart';
 import '../services/media_engine.dart';
 import '../theme.dart';
 import '../live_editor/live_editor_page.dart';
+import '../features/motion_canvas/motion_canvas_page.dart';
 import '../localization/app_localizations.dart';
 import '../widgets/media_preview_sheet.dart';
 import 'video_picker_screen.dart';
@@ -59,11 +60,13 @@ class _HomeShellState extends State<HomeShell> {
       if (!mounted || assets == null || assets.isEmpty) return;
       final result = await Navigator.of(context).push<LiveExport>(
         MaterialPageRoute(
-          builder: (_) => LiveEditorPage(
-            assets: assets,
-            engine: _engine,
-            initialMode: mode,
-          ),
+          builder: (_) => mode == 1
+              ? MotionCanvasPage(assets: assets, engine: _engine)
+              : LiveEditorPage(
+                  assets: assets,
+                  engine: _engine,
+                  initialMode: mode,
+                ),
         ),
       );
       if (result != null && mounted) {

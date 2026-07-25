@@ -2,11 +2,9 @@ package com.example.after_frame
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
-import android.util.Size
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
@@ -14,7 +12,6 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
-import java.io.FileOutputStream
 import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
@@ -22,13 +19,13 @@ class MainActivity : FlutterActivity() {
     private val permissionRequest = 4108
     private val executor = Executors.newSingleThreadExecutor()
     private var pendingPermission: MethodChannel.Result? = null
-    private lateinit var exportEngine: Media3ExportEngine
+    private lateinit var mediaEngine: FfmpegMediaEngine
     private lateinit var exportIndex: ExportIndex
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         exportIndex = ExportIndex(this)
-        exportEngine = Media3ExportEngine(this, executor, exportIndex)
+        mediaEngine = FfmpegMediaEngine(this, executor, exportIndex)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result -> handle(call, result) }
     }
@@ -58,10 +55,10 @@ class MainActivity : FlutterActivity() {
                 // Always return null for void operations.
                 null
             }
-            "exportLive" -> exportEngine.export(call, result)
+            "exportLive" -> mediaEngine.export(call, result)
             "shareMedia" -> {
                 try {
-                    exportEngine.share(
+                    mediaEngine.share(
                         Uri.parse(call.argument<String>("uri")!!),
                         call.argument<String>("mimeType")!!,
                         call.argument<String>("title") ?: "分享 AfterFrame",
@@ -174,26 +171,16 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun inspect(uri: Uri): Map<String, Any> {
-        val retriever = MediaMetadataRetriever()
-        return try {
-            retriever.setDataSource(this, uri)
-            mapOf(
-                "uri" to uri.toString(),
-                "name" to (contentResolver.query(
+        val name = runCatching {
+            contentResolver.query(
                     uri,
                     arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
                     null,
                     null,
                     null,
-                )?.use { if (it.moveToFirst()) it.getString(0) else null } ?: "memory.mp4"),
-                "durationMs" to metadataLong(retriever, MediaMetadataRetriever.METADATA_KEY_DURATION),
-                "width" to metadataLong(retriever, MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH).toInt(),
-                "height" to metadataLong(retriever, MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT).toInt(),
-                "rotation" to metadataLong(retriever, MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION).toInt(),
-            )
-        } finally {
-            retriever.release()
-        }
+                )?.use { if (it.moveToFirst()) it.getString(0) else null }
+        }.getOrNull() ?: uri.lastPathSegment ?: "memory.mp4"
+        return mediaEngine.inspect(uri, name)
     }
 
     private fun thumbnail(uri: Uri): String {
@@ -202,58 +189,14 @@ class MainActivity : FlutterActivity() {
         // smaller disk cache leaves Flutter holding paths that were already
         // deleted and presents those tiles as black until the process restarts.
         pruneCache(directory, 160)
-        val file = File(directory, "${uri.hashCode()}.jpg")
-        if (file.exists() && file.length() > 0) return file.absolutePath
-        val bitmap = if (Build.VERSION.SDK_INT >= 29) {
-            contentResolver.loadThumbnail(uri, Size(512, 512), null)
-        } else {
-            val retriever = MediaMetadataRetriever()
-            try {
-                retriever.setDataSource(this, uri)
-                retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-            } finally {
-                retriever.release()
-            }
-        } ?: throw IllegalStateException("无法生成视频缩略图")
-        val pending = File(directory, ".${file.name}.${System.nanoTime()}.tmp")
-        try {
-            FileOutputStream(pending).use {
-                check(bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 86, it)) {
-                    "无法编码视频缩略图"
-                }
-            }
-            check(pending.length() > 0L && pending.renameTo(file)) { "无法保存视频缩略图" }
-        } finally {
-            pending.delete()
-            bitmap.recycle()
-        }
-        return file.absolutePath
+        return mediaEngine.extractFrame(uri, 0, directory, uri.hashCode().toString())
     }
 
     private fun extractFrame(uri: Uri, timeMs: Long): String {
-        val retriever = MediaMetadataRetriever()
-        return try {
-            retriever.setDataSource(this, uri)
-            val bitmap = retriever.getFrameAtTime(
-                timeMs * 1000,
-                MediaMetadataRetriever.OPTION_CLOSEST,
-            ) ?: throw IllegalStateException("无法提取 ${timeMs}ms 的画面")
-            val directory = File(cacheDir, "afterframe/frames").apply { mkdirs() }
-            pruneCache(directory, 128)
-            val file = File(directory, "${uri.hashCode()}_$timeMs.jpg")
-            if (file.exists() && file.length() > 0) return file.absolutePath
-            FileOutputStream(file).use {
-                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, it)
-            }
-            bitmap.recycle()
-            file.absolutePath
-        } finally {
-            retriever.release()
-        }
+        val directory = File(cacheDir, "afterframe/frames").apply { mkdirs() }
+        pruneCache(directory, 128)
+        return mediaEngine.extractFrame(uri, timeMs, directory, "${uri.hashCode()}_$timeMs")
     }
-
-    private fun metadataLong(retriever: MediaMetadataRetriever, key: Int): Long =
-        retriever.extractMetadata(key)?.toLongOrNull() ?: 0L
 
     private fun pruneCache(directory: File, limit: Int) {
         val files = directory.listFiles()?.filter(File::isFile)?.sortedBy(File::lastModified) ?: return
@@ -274,7 +217,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
-        if (::exportEngine.isInitialized) exportEngine.cancel()
+        if (::mediaEngine.isInitialized) mediaEngine.cancel()
         if (::exportIndex.isInitialized) exportIndex.close()
         executor.shutdown()
         super.onDestroy()

@@ -104,13 +104,16 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
     }
     setState(() => _submitting = true);
     try {
-      final assets = <MediaAsset>[];
-      for (final uri in _selectedUris) {
-        assets.add(await widget.engine.inspectVideo(uri));
-      }
+      // 直接使用已缓存的视频列表数据（listVideos 已通过 MediaStore
+      // 返回了 uri / name / durationMs / width / height），避免再次
+      // 调用 inspectVideo → FFprobe：后者在 arm64 v8a 上通过
+      // getSafParameterForRead 处理 content URI 时可能 native crash。
+      // 同时保持用户在 picker 中的选择顺序（对 collage 多选很重要）。
+      final videoMap = {for (final v in _videos) v.uri: v};
+      final assets = _selectedUris
+          .map((uri) => videoMap[uri]!)
+          .toList(growable: false);
       if (mounted) Navigator.pop(context, assets);
-    } catch (error) {
-      if (mounted) _message('errorInspect');
     } finally {
       if (mounted) setState(() => _submitting = false);
     }

@@ -45,10 +45,10 @@ flutter {
 }
 
 dependencies {
-    val media3Version = "1.10.1"
-    implementation("androidx.media3:media3-common:$media3Version")
-    implementation("androidx.media3:media3-transformer:$media3Version")
-    implementation("androidx.media3:media3-effect:$media3Version")
+    // FFmpeg 8.1.1 Android build with 16 KB page support and every ABI used by
+    // Flutter's default --split-per-abi command.
+    implementation("com.antonkarpenko:ffmpeg-kit-full:2.2.1")
+    implementation("com.arthenica:smart-exception-java:0.2.1")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
 }
