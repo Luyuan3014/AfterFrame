@@ -66,4 +66,27 @@ void main() {
     expect(arguments['collageLayout'], 2);
     expect(arguments['collageAudioSourceIndex'], 1);
   });
+
+  test('deleteExport forwards the durable work identity', () async {
+    MethodCall? captured;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          captured = call;
+          return null;
+        });
+    final export = LiveExport(
+      path: 'content://images/7',
+      createdAt: DateTime.fromMillisecondsSinceEpoch(1),
+      coverPath: '/files/cover.jpg',
+    );
+
+    await const MediaEngine().deleteExport(export);
+
+    expect(captured?.method, 'deleteExport');
+    expect(captured?.arguments, {
+      'liveUri': export.path,
+      'coverPath': export.coverPath,
+      'displayName': export.displayName,
+    });
+  });
 }

@@ -7,6 +7,7 @@ import '../services/media_engine.dart';
 import '../theme.dart';
 import '../live_editor/live_editor_page.dart';
 import '../localization/app_localizations.dart';
+import '../widgets/media_preview_sheet.dart';
 import 'video_picker_screen.dart';
 
 class HomeShell extends StatefulWidget {
@@ -19,6 +20,7 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   final _engine = const MediaEngine();
   final List<LiveExport> _exports = [];
+  final Set<String> _deletingExports = {};
   int _page = 0;
   bool _picking = false;
   bool _loadingExports = true;
@@ -95,6 +97,69 @@ class _HomeShellState extends State<HomeShell> {
     }
   }
 
+  Future<void> _previewExport(LiveExport export) async {
+    if (export.galleryUri.isEmpty || export.shareMimeType != 'video/mp4') {
+      _message('previewUnavailable');
+      return;
+    }
+    await showMediaPreview(
+      context,
+      uri: export.galleryUri,
+      title: export.displayName,
+      coverPath: export.coverPath,
+    );
+  }
+
+  Future<void> _deleteExport(LiveExport export) async {
+    if (_deletingExports.contains(export.path)) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(dialogContext.l10n.text('deleteWorkTitle')),
+        content: Text(dialogContext.l10n.text('deleteWorkDetail')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(dialogContext.l10n.text('cancel')),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(dialogContext.l10n.text('delete')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _deletingExports.add(export.path));
+    try {
+      await _engine.deleteExport(export);
+      if (!mounted) return;
+      setState(() => _exports.removeWhere((item) => item.path == export.path));
+      _message('workDeleted');
+    } catch (error) {
+      // Reconcile after any partial native failure. If MediaStore was already
+      // deleted, this also removes a stale card instead of leaving a ghost.
+      await _restoreExports();
+      if (mounted) {
+        final stillExists = _exports.any((item) => item.path == export.path);
+        _message(stillExists ? 'errorDelete' : 'workDeleted');
+      }
+    } finally {
+      if (mounted) setState(() => _deletingExports.remove(export.path));
+    }
+  }
+
+  void _message(String key) => ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(context.l10n.text(key)),
+      behavior: SnackBarBehavior.floating,
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -110,6 +175,9 @@ class _HomeShellState extends State<HomeShell> {
               loading: _loadingExports,
               onCreate: () => _create(),
               onShare: _shareExport,
+              onPreview: _previewExport,
+              onDelete: _deleteExport,
+              deletingExports: _deletingExports,
             ),
             const _Profile(),
           ],
@@ -470,11 +538,17 @@ class _Works extends StatelessWidget {
     required this.exports,
     required this.onCreate,
     required this.onShare,
+    required this.onPreview,
+    required this.onDelete,
+    required this.deletingExports,
     required this.loading,
   });
   final List<LiveExport> exports;
   final VoidCallback onCreate;
   final ValueChanged<LiveExport> onShare;
+  final ValueChanged<LiveExport> onPreview;
+  final ValueChanged<LiveExport> onDelete;
+  final Set<String> deletingExports;
   final bool loading;
 
   @override
@@ -515,58 +589,105 @@ class _Works extends StatelessWidget {
                     itemCount: exports.length,
                     itemBuilder: (_, index) {
                       final item = exports[index];
-                      return ClipRRect(
+                      final deleting = deletingExports.contains(item.path);
+                      return Material(
+                        color: AfterFrameColors.panelSoft,
                         borderRadius: BorderRadius.circular(22),
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            Image.file(
-                              File(item.coverPath),
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, _, _) =>
-                                  Container(color: AfterFrameColors.panelSoft),
-                            ),
-                            const DecoratedBox(
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [Colors.transparent, Colors.black87],
-                                  begin: Alignment.center,
-                                  end: Alignment.bottomCenter,
+                        clipBehavior: Clip.antiAlias,
+                        child: InkWell(
+                          onTap: deleting ? null : () => onPreview(item),
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              Image.file(
+                                File(item.coverPath),
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => Container(
+                                  color: AfterFrameColors.panelSoft,
                                 ),
                               ),
-                            ),
-                            const Positioned(
-                              right: 12,
-                              top: 12,
-                              child: Icon(
-                                Icons.motion_photos_on_rounded,
-                                color: AfterFrameColors.lime,
-                              ),
-                            ),
-                            Positioned(
-                              left: 6,
-                              top: 5,
-                              child: IconButton.filledTonal(
-                                tooltip: l10n.text('shareToChat'),
-                                onPressed: () => onShare(item),
-                                icon: const Icon(Icons.send_rounded, size: 18),
-                              ),
-                            ),
-                            Positioned(
-                              left: 14,
-                              right: 14,
-                              bottom: 13,
-                              child: Text(
-                                item.displayName,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
+                              const DecoratedBox(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      Colors.transparent,
+                                      Colors.black87,
+                                    ],
+                                    begin: Alignment.center,
+                                    end: Alignment.bottomCenter,
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
+                              const Positioned(
+                                right: 12,
+                                top: 12,
+                                child: Icon(
+                                  Icons.motion_photos_on_rounded,
+                                  color: AfterFrameColors.lime,
+                                ),
+                              ),
+                              Positioned(
+                                left: 14,
+                                right: 14,
+                                bottom: 51,
+                                child: Text(
+                                  item.displayName,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                left: 6,
+                                right: 6,
+                                bottom: 5,
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    _WorkAction(
+                                      tooltip: l10n.text('previewWork'),
+                                      icon: Icons.play_arrow_rounded,
+                                      onPressed: deleting
+                                          ? null
+                                          : () => onPreview(item),
+                                    ),
+                                    _WorkAction(
+                                      tooltip: l10n.text('shareToChat'),
+                                      icon: Icons.send_rounded,
+                                      onPressed: deleting
+                                          ? null
+                                          : () => onShare(item),
+                                    ),
+                                    _WorkAction(
+                                      tooltip: l10n.text('delete'),
+                                      icon: Icons.delete_outline_rounded,
+                                      onPressed: deleting
+                                          ? null
+                                          : () => onDelete(item),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (deleting)
+                                Positioned.fill(
+                                  child: Semantics(
+                                    label: l10n.text('deletingWork'),
+                                    child: const ColoredBox(
+                                      color: Color(0x99000000),
+                                      child: Center(
+                                        child: CircularProgressIndicator(
+                                          color: AfterFrameColors.lime,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
                       );
                     },
@@ -576,6 +697,28 @@ class _Works extends StatelessWidget {
       ),
     );
   }
+}
+
+class _WorkAction extends StatelessWidget {
+  const _WorkAction({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) => IconButton.filledTonal(
+    tooltip: tooltip,
+    visualDensity: VisualDensity.compact,
+    constraints: const BoxConstraints.tightFor(width: 38, height: 38),
+    padding: EdgeInsets.zero,
+    onPressed: onPressed,
+    icon: Icon(icon, size: 19),
+  );
 }
 
 class _EmptyWorks extends StatelessWidget {

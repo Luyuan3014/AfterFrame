@@ -7,6 +7,7 @@ import '../models/media_asset.dart';
 import '../services/media_engine.dart';
 import '../theme.dart';
 import '../localization/app_localizations.dart';
+import '../widgets/media_preview_sheet.dart';
 
 class VideoPickerScreen extends StatefulWidget {
   const VideoPickerScreen({
@@ -91,6 +92,9 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
       }
     });
   }
+
+  Future<void> _preview(MediaAsset item) =>
+      showMediaPreview(context, uri: item.uri, title: item.name);
 
   Future<void> _submit() async {
     if (_selectedUris.isEmpty ||
@@ -227,10 +231,12 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
               final asset = _videos[index];
               final selectedIndex = _selectedUris.indexOf(asset.uri);
               return _VideoTile(
+                key: ValueKey(asset.uri),
                 asset: asset,
                 engine: widget.engine,
                 selectionOrder: selectedIndex < 0 ? null : selectedIndex + 1,
                 onTap: () => _toggle(asset),
+                onPreview: () => _preview(asset),
               );
             },
           ),
@@ -242,22 +248,30 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
 
 class _VideoTile extends StatefulWidget {
   const _VideoTile({
+    super.key,
     required this.asset,
     required this.engine,
     required this.selectionOrder,
     required this.onTap,
+    required this.onPreview,
   });
   final MediaAsset asset;
   final MediaEngine engine;
   final int? selectionOrder;
   final VoidCallback onTap;
+  final VoidCallback onPreview;
   @override
   State<_VideoTile> createState() => _VideoTileState();
 }
 
 class _VideoTileState extends State<_VideoTile> {
-  late final Future<String> _thumbnail = widget.engine.videoThumbnail(
-    widget.asset.uri,
+  late Future<String> _thumbnail = _loadThumbnail();
+
+  Future<String> _loadThumbnail() =>
+      widget.engine.videoThumbnail(widget.asset.uri);
+
+  void _retryThumbnail() => setState(
+    () => _thumbnail = widget.engine.refreshVideoThumbnail(widget.asset.uri),
   );
 
   @override
@@ -278,20 +292,31 @@ class _VideoTileState extends State<_VideoTile> {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: widget.onTap,
+          onLongPress: widget.onPreview,
           child: Stack(
             fit: StackFit.expand,
             children: [
               FutureBuilder<String>(
                 future: _thumbnail,
-                builder: (_, snapshot) =>
-                    snapshot.hasData && snapshot.data!.isNotEmpty
-                    ? Image.file(File(snapshot.data!), fit: BoxFit.cover)
-                    : const Center(
-                        child: Icon(
-                          Icons.movie_outlined,
-                          color: Colors.white24,
-                        ),
-                      ),
+                builder: (_, snapshot) {
+                  if (snapshot.hasData && snapshot.data!.isNotEmpty) {
+                    return Image.file(
+                      File(snapshot.data!),
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) =>
+                          _ThumbnailRetry(onRetry: _retryThumbnail),
+                    );
+                  }
+                  if (snapshot.hasError) {
+                    return _ThumbnailRetry(onRetry: _retryThumbnail);
+                  }
+                  return const Center(
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white24,
+                    ),
+                  );
+                },
               ),
               const DecoratedBox(
                 decoration: BoxDecoration(
@@ -334,6 +359,21 @@ class _VideoTileState extends State<_VideoTile> {
                 ),
               ),
               Positioned(
+                right: 5,
+                bottom: 4,
+                child: IconButton.filledTonal(
+                  tooltip: context.l10n.text('previewMaterial'),
+                  visualDensity: VisualDensity.compact,
+                  constraints: const BoxConstraints.tightFor(
+                    width: 31,
+                    height: 31,
+                  ),
+                  padding: EdgeInsets.zero,
+                  onPressed: widget.onPreview,
+                  icon: const Icon(Icons.play_arrow_rounded, size: 19),
+                ),
+              ),
+              Positioned(
                 left: 7,
                 bottom: 7,
                 child: Container(
@@ -365,6 +405,21 @@ class _VideoTileState extends State<_VideoTile> {
       ),
     );
   }
+}
+
+class _ThumbnailRetry extends StatelessWidget {
+  const _ThumbnailRetry({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: IconButton(
+      tooltip: context.l10n.text('retryThumbnail'),
+      onPressed: onRetry,
+      icon: const Icon(Icons.refresh_rounded, color: Colors.white54),
+    ),
+  );
 }
 
 class _SelectionBar extends StatelessWidget {

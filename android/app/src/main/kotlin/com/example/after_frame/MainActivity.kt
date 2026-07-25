@@ -48,6 +48,16 @@ class MainActivity : FlutterActivity() {
                 )
             }
             "listExports" -> background(result) { exportIndex.listAndReconcile() }
+            "deleteExport" -> background(result) {
+                exportIndex.delete(
+                    liveUri = call.argument<String>("liveUri")!!,
+                    coverPathHint = call.argument<String>("coverPath"),
+                    displayNameHint = call.argument<String>("displayName"),
+                )
+                // MethodChannel's StandardMessageCodec cannot encode kotlin.Unit.
+                // Always return null for void operations.
+                null
+            }
             "exportLive" -> exportEngine.export(call, result)
             "shareMedia" -> {
                 try {
@@ -188,7 +198,10 @@ class MainActivity : FlutterActivity() {
 
     private fun thumbnail(uri: Uri): String {
         val directory = File(cacheDir, "afterframe/thumbnails").apply { mkdirs() }
-        pruneCache(directory, 48)
+        // Keep this above MediaEngine's in-memory path cache (96 entries). A
+        // smaller disk cache leaves Flutter holding paths that were already
+        // deleted and presents those tiles as black until the process restarts.
+        pruneCache(directory, 160)
         val file = File(directory, "${uri.hashCode()}.jpg")
         if (file.exists() && file.length() > 0) return file.absolutePath
         val bitmap = if (Build.VERSION.SDK_INT >= 29) {
@@ -202,8 +215,18 @@ class MainActivity : FlutterActivity() {
                 retriever.release()
             }
         } ?: throw IllegalStateException("无法生成视频缩略图")
-        FileOutputStream(file).use { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 86, it) }
-        bitmap.recycle()
+        val pending = File(directory, ".${file.name}.${System.nanoTime()}.tmp")
+        try {
+            FileOutputStream(pending).use {
+                check(bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 86, it)) {
+                    "无法编码视频缩略图"
+                }
+            }
+            check(pending.length() > 0L && pending.renameTo(file)) { "无法保存视频缩略图" }
+        } finally {
+            pending.delete()
+            bitmap.recycle()
+        }
         return file.absolutePath
     }
 
@@ -237,7 +260,7 @@ class MainActivity : FlutterActivity() {
         files.take((files.size - limit).coerceAtLeast(0)).forEach(File::delete)
     }
 
-    private fun background(result: MethodChannel.Result, operation: () -> Any) {
+    private fun background(result: MethodChannel.Result, operation: () -> Any?) {
         executor.execute {
             try {
                 val value = operation()

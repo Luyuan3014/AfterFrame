@@ -21,6 +21,12 @@ SharedPreferences (zh/en)
 
 ```text
 HomeShell
+├── VideoPickerScreen
+│   ├── thumbnail path cache            路径存活检查、失败重试
+│   └── MediaPreviewSheet               素材 content URI 循环预览
+├── Works
+│   ├── MediaPreviewSheet               私有 MP4 Live 预览
+│   └── preview / share / delete         作品生命周期操作
 └── LiveEditorPage
     ├── LiveEditorState                 单一状态源
     ├── MediaEngine                     原生媒体能力边界
@@ -103,9 +109,11 @@ Android 10 及以上使用 MediaStore `RELATIVE_PATH` 与 `IS_PENDING`，完成�
 
 ## 缓存与作品索引
 
-`MediaEngine` 用共享、限长的 Future 缓存合并相同 URI/时间戳的并发缩略图和抽帧请求，失败项立即移除以允许重试。Android 原生磁盘缓存分别保留最近 48 个缩略图和 128 个时间轴帧，并在解码前检查命中。
+`MediaEngine` 用共享、限长的 Future 缓存合并相同 URI/时间戳的并发缩略图和抽帧请求，失败项立即移除以允许重试。缓存命中后还会确认本地文件仍存在，防止上层 Future 保存已经被原生淘汰的路径。Android 缩略图磁盘缓存保留 160 项，高于 Flutter 的 96 项路径缓存；生成结果通过“临时文件 → 完整编码 → 重命名”发布，UI 不会观察到半写入 JPEG。解码或文件读取失败时，素材卡会删除失效缓存并重新生成。
 
-每次发布成功后，`ExportIndex` 使用 Android `SQLiteOpenHelper` 原子记录 Live URI、分享 URI、持久封面、名称、时间和 MIME 类型。App 启动时先读取 SQLite，再扫描 `DCIM/AfterFrame/*MP.jpg` 补回数据库缺失作品；恢复项以 JPEG Motion Photo 方式分享。
+每次发布成功后，`ExportIndex` 使用 Android `SQLiteOpenHelper` 原子记录 Live URI、分享 URI、持久封面、名称、时间和 MIME 类型。App 启动时先读取 SQLite，再扫描 `DCIM/AfterFrame/*MP.jpg` 补回数据库缺失作品；恢复时读取 XMP `Item:Length`，从 Motion Photo 文件尾部重建私有 MP4 预览/聊天分享副本，并回写或升级 SQLite 索引。若第三方 Motion Photo 缺少该标准字段，仍保留 JPEG 原文件，但明确提示无法 Live 预览。
+
+作品删除以 `liveUri` 作为稳定身份，并采用持久化两阶段语义：SQLite v2 先把 `deleting` 标记设为 1，再删除 App 拥有的 MediaStore Motion Photo、`files/afterframe/exports` 中的预览/分享 MP4、`files/afterframe/covers` 中的封面，最后移除 SQLite 行。每一步均把“不存在”视为已完成，因此同一请求可以安全重复。若进程中断，`listAndReconcile` 在下次启动先完成带删除标记的任务；没有标记但 Live URI 已失效的旧索引也会连同私有文件一起清除。只有原生返回可编码的 `null` 成功结果后 Flutter 才移除卡片；异常时重新读取索引，以原生真实状态覆盖内存列表。
 
 ## 视频预览边界
 
@@ -115,6 +123,8 @@ Android 10 及以上使用 MediaStore `RELATIVE_PATH` 与 `IS_PENDING`，完成�
 - 播放到 `endTime` 时暂停，开启循环时跳回 `startTime`。
 - 封面或选区变化会在安全状态下 seek，不改变导出时间语义。
 - 播放位置以节流方式写回 `currentPosition`，避免高频刷新整个创作面板。
+
+`MediaPreviewSheet` 是素材库和作品页共享的轻量预览边界。它自行持有并释放 `VideoPlayerController`，支持 `content://` 与文件 URI，用户明确打开后自动循环播放，并提供暂停、进度拖动与静音。素材卡的选择手势与预览入口分离，避免预览时意外改变拼图顺序。作品页优先播放导出时保留的私有 MP4；系统相册恢复项会先从标准 Motion Photo 尾部重建同类副本。只有缺少标准视频长度元数据的外部文件才提示暂不可预览，不会把 JPEG 错交给视频解码器。
 
 ## 视觉与动效层
 

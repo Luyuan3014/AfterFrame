@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/services.dart';
 
 import '../models/media_asset.dart';
@@ -55,7 +57,20 @@ class MediaEngine {
   }
 
   Future<String> videoThumbnail(String uri) async {
-    return _remember(_thumbnailCache, uri, () => _videoThumbnail(uri));
+    return _rememberFile(_thumbnailCache, uri, () => _videoThumbnail(uri));
+  }
+
+  Future<String> refreshVideoThumbnail(String uri) async {
+    final stale = _thumbnailCache.remove(uri);
+    if (stale != null) {
+      try {
+        final path = await stale;
+        if (path.isNotEmpty) await File(path).delete();
+      } catch (_) {
+        // A failed or already-pruned entry is safe to regenerate.
+      }
+    }
+    return videoThumbnail(uri);
   }
 
   Future<String> _videoThumbnail(String uri) async {
@@ -71,7 +86,7 @@ class MediaEngine {
 
   Future<String> extractFrame(String uri, int timeMs) async {
     final key = '$uri@$timeMs';
-    return _remember(_frameCache, key, () => _extractFrame(uri, timeMs));
+    return _rememberFile(_frameCache, key, () => _extractFrame(uri, timeMs));
   }
 
   Future<String> _extractFrame(String uri, int timeMs) async {
@@ -86,13 +101,17 @@ class MediaEngine {
     }
   }
 
-  static Future<String> _remember(
+  static Future<String> _rememberFile(
     Map<String, Future<String>> cache,
     String key,
     Future<String> Function() loader,
-  ) {
+  ) async {
     final existing = cache[key];
-    if (existing != null) return existing;
+    if (existing != null) {
+      final path = await existing;
+      if (path.isNotEmpty && await File(path).exists()) return path;
+      cache.remove(key);
+    }
     if (cache.length >= _memoryCacheLimit) cache.remove(cache.keys.first);
     final future = loader();
     cache[key] = future;
@@ -100,7 +119,7 @@ class MediaEngine {
       cache.remove(key);
       return '';
     });
-    return future;
+    return await future;
   }
 
   Future<List<LiveExport>> listExports() async {
@@ -113,6 +132,18 @@ class MediaEngine {
           .toList(growable: false);
     } on PlatformException catch (error) {
       throw MediaEngineException(error.code, error.message ?? '无法恢复作品索引');
+    }
+  }
+
+  Future<void> deleteExport(LiveExport export) async {
+    try {
+      await _channel.invokeMethod<void>('deleteExport', {
+        'liveUri': export.path,
+        'coverPath': export.coverPath,
+        'displayName': export.displayName,
+      });
+    } on PlatformException catch (error) {
+      throw MediaEngineException(error.code, error.message ?? '无法删除作品');
     }
   }
 
