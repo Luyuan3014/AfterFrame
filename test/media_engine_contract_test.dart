@@ -61,6 +61,10 @@ void main() {
       motionTransition: 2,
       cropFocusX: const [.5, .44],
       cropFocusY: const [.35, .52],
+      collageRects: const [
+        [0, 0, .6, 1],
+        [.61, 0, .39, 1],
+      ],
       format: 'mp4',
     );
 
@@ -75,6 +79,10 @@ void main() {
     expect(arguments['collageStartMs'], [200, 400]);
     expect(arguments['collageEndMs'], [4200, 4000]);
     expect(arguments['motionTransition'], 2);
+    expect(arguments['collageRects'], [
+      [0, 0, .6, 1],
+      [.61, 0, .39, 1],
+    ]);
   });
 
   test('deleteExport forwards the durable work identity', () async {

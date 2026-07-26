@@ -67,13 +67,53 @@ void main() {
     expect(controller.durationMs, 2000);
   });
 
-  test('smart layout bounds mixed-aspect clip heights', () {
-    const layout = MotionCanvasLayout();
-    expect(
-      layout.heightFor(landscape.aspectRatio),
-      inInclusiveRange(360, 1120),
+  test(
+    'adaptive layout maximizes no-crop occupancy of the portrait canvas',
+    () {
+      const layout = MotionCanvasLayout();
+      final widePlan = layout.planFor(const [16 / 9, 16 / 9]);
+      final mixedPlan = layout.planFor(const [9 / 16, 16 / 9, 1]);
+
+      expect(widePlan.kind, AdaptiveLayoutKind.splitHorizontal);
+      expect(mixedPlan.slots, hasLength(3));
+      expect(mixedPlan.slots.first.x, 0);
+      expect(
+        mixedPlan.slots.last.y + mixedPlan.slots.last.height,
+        closeTo(1, .001),
+      );
+    },
+  );
+
+  test('two landscape clips fill width and preserve every source pixel', () {
+    final controller = MotionCanvasController(
+      assets: const [landscape, landscape],
     );
-    expect(layout.heightFor(portrait.aspectRatio), 1120);
-    expect(layout.heightFor(square.aspectRatio), 1080);
+    addTearDown(controller.dispose);
+
+    expect(controller.canvasPlan.kind, AdaptiveLayoutKind.splitHorizontal);
+    for (final slot in controller.contentSlots) {
+      expect(slot.width, 1);
+      final physicalAspect =
+          slot.width *
+          controller.layout.canvasWidth /
+          (slot.height * controller.layout.canvasHeight);
+      expect(physicalAspect, closeTo(landscape.aspectRatio, .0001));
+    }
+  });
+
+  test('manual positioning keeps aspect ratio and can be reset', () {
+    final controller = MotionCanvasController(assets: const [landscape]);
+    addTearDown(controller.dispose);
+    final centered = controller.contentSlots.single;
+
+    controller.moveClipFocus(0, -.8, .9);
+    expect(controller.activeClip.focus.x, 0);
+    expect(controller.activeClip.focus.y, 1);
+    final moved = controller.contentSlots.single;
+    expect(moved.y, greaterThan(centered.y));
+    expect(moved.aspectRatio, closeTo(centered.aspectRatio, .0001));
+    controller.resetClipFocus(0);
+    expect(controller.activeClip.focus.x, .5);
+    expect(controller.activeClip.focus.y, .5);
   });
 }

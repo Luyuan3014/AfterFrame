@@ -37,6 +37,9 @@ class MotionCanvasExportService {
       motionTransition: canvas.transition.index,
       cropFocusX: canvas.clips.map((clip) => clip.focus.x).toList(),
       cropFocusY: canvas.clips.map((clip) => clip.focus.y).toList(),
+      collageRects: canvas.contentSlots
+          .map((slot) => slot.encoded)
+          .toList(growable: false),
       format: canvas.exportFormat.name,
     );
     return (published: published, coverPath: coverPath);

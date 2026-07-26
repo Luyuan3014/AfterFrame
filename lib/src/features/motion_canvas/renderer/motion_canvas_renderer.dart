@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../theme.dart';
 import '../controllers/motion_canvas_controller.dart';
+import '../models/motion_canvas_layout.dart';
 import '../models/motion_clip.dart';
 import '../preview/preview_engine.dart';
 import 'transition_engine.dart';
@@ -15,10 +15,12 @@ class MotionCanvasRenderer extends StatefulWidget {
     super.key,
     required this.controller,
     this.previewEngine = const Media3PreviewEngine(),
+    this.showChrome = true,
   });
 
   final MotionCanvasController controller;
   final PreviewEngine previewEngine;
+  final bool showChrome;
 
   @override
   State<MotionCanvasRenderer> createState() => _MotionCanvasRendererState();
@@ -145,61 +147,50 @@ class _MotionCanvasRendererState extends State<MotionCanvasRenderer> {
   @override
   Widget build(BuildContext context) {
     final canvas = widget.controller;
-    final activePlayer = _players[canvas.activeClip.id];
     return Semantics(
       label: 'Motion Canvas preview',
-      button: true,
-      child: GestureDetector(
-        onTap: canvas.togglePlayback,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(canvas.layout.cornerRadius),
-          clipBehavior: Clip.antiAlias,
-          child: ColoredBox(
-            color: const Color(0xFF0B0B0D),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                if (activePlayer?.value.isInitialized ?? false)
-                  Transform.scale(
-                    scale: 1.3,
-                    child: ImageFiltered(
-                      imageFilter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                      child: Opacity(
-                        opacity: .3,
-                        child: VideoPlayer(activePlayer!),
-                      ),
-                    ),
-                  ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: Column(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(
+          widget.showChrome ? canvas.layout.cornerRadius : 0,
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: ColoredBox(
+          color: const Color(0xFF101114),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final contentSlots = canvas.contentSlots;
+                  return Stack(
                     children: [
-                      for (var i = 0; i < canvas.clips.length; i++)
-                        Expanded(
-                          flex: canvas.layout
-                              .heightFor(canvas.clips[i].asset.aspectRatio)
-                              .round(),
-                          child: Transform.translate(
-                            offset: Offset(
-                              0,
-                              i == 0 ? 0 : -canvas.layout.overlap / 2,
-                            ),
-                            child: _ClipSurface(
-                              clip: canvas.clips[i],
-                              player: _players[canvas.clips[i].id],
-                              selected: i == canvas.activeClipIndex,
-                              onTap: () => canvas.selectClip(i),
-                            ),
+                      for (var i = 0; i < contentSlots.length; i++)
+                        _positionedClip(
+                          contentSlots[i],
+                          constraints,
+                          _ClipSurface(
+                            clip: canvas.clips[i],
+                            player: _players[canvas.clips[i].id],
+                            interactive: widget.showChrome,
+                            selected:
+                                widget.showChrome &&
+                                i == canvas.activeClipIndex,
+                            onTap: () => canvas.selectClip(i),
+                            onDoubleTap: () => canvas.resetClipFocus(i),
+                            onMove: (delta) =>
+                                canvas.moveClipFocus(i, delta.dx, delta.dy),
                           ),
                         ),
                     ],
-                  ),
-                ),
-                TransitionEngine(
-                  transition: canvas.transition,
-                  progress: canvas.positionMs / canvas.durationMs,
-                  child: const SizedBox.expand(),
-                ),
+                  );
+                },
+              ),
+              TransitionEngine(
+                transition: canvas.transition,
+                progress: canvas.positionMs / canvas.durationMs,
+                child: const SizedBox.expand(),
+              ),
+              if (widget.showChrome)
                 Positioned(
                   left: 16,
                   bottom: 14,
@@ -213,7 +204,7 @@ class _MotionCanvasRendererState extends State<MotionCanvasRenderer> {
                       ),
                       const SizedBox(width: 6),
                       const Text(
-                        'MOTION CANVAS',
+                        'DRAG TO POSITION',
                         style: TextStyle(
                           fontSize: 9,
                           fontWeight: FontWeight.w700,
@@ -223,74 +214,131 @@ class _MotionCanvasRendererState extends State<MotionCanvasRenderer> {
                     ],
                   ),
                 ),
-              ],
-            ),
+              if (!widget.showChrome)
+                Positioned(
+                  right: 16,
+                  top: 16,
+                  child: _PreviewPlaybackButton(controller: canvas),
+                ),
+            ],
           ),
         ),
       ),
     );
   }
+
+  Positioned _positionedClip(
+    CanvasSlot slot,
+    BoxConstraints constraints,
+    Widget child,
+  ) => Positioned(
+    left: slot.x * constraints.maxWidth,
+    top: slot.y * constraints.maxHeight,
+    width: slot.width * constraints.maxWidth,
+    height: slot.height * constraints.maxHeight,
+    child: child,
+  );
 }
 
 class _ClipSurface extends StatelessWidget {
   const _ClipSurface({
     required this.clip,
     required this.player,
+    required this.interactive,
     required this.selected,
     required this.onTap,
+    required this.onDoubleTap,
+    required this.onMove,
   });
 
   final MotionClip clip;
   final VideoPlayerController? player;
+  final bool interactive;
   final bool selected;
   final VoidCallback onTap;
+  final VoidCallback onDoubleTap;
+  final ValueChanged<Offset> onMove;
 
   @override
   Widget build(BuildContext context) {
     final ready = player?.value.isInitialized ?? false;
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: MotionCanvasController.motion,
-        curve: MotionCanvasController.curve,
-        foregroundDecoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Colors.transparent, Colors.black.withValues(alpha: .08)],
-          ),
-          boxShadow: selected
-              ? [
-                  BoxShadow(
-                    color: AfterFrameColors.lime.withValues(alpha: .12),
-                    blurRadius: 28,
-                  ),
-                ]
-              : const [],
-        ),
-        child: ready
-            ? ClipRect(
-                child: FittedBox(
-                  fit: BoxFit.cover,
-                  alignment: Alignment(
-                    clip.focus.x * 2 - 1,
-                    clip.focus.y * 2 - 1,
-                  ),
-                  child: SizedBox(
-                    width: player!.value.size.width,
-                    height: player!.value.size.height,
-                    child: VideoPlayer(player!),
-                  ),
+    return LayoutBuilder(
+      builder: (context, constraints) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: interactive ? onTap : null,
+        onDoubleTap: interactive ? onDoubleTap : null,
+        onPanUpdate: interactive
+            ? (details) => onMove(
+                Offset(
+                  details.delta.dx / constraints.maxWidth,
+                  details.delta.dy / constraints.maxHeight,
                 ),
               )
-            : const ColoredBox(
-                color: Color(0xFF202126),
-                child: Center(
-                  child: CircularProgressIndicator(
-                    strokeWidth: 1.5,
-                    color: Colors.white38,
+            : null,
+        child: AnimatedContainer(
+          duration: MotionCanvasController.motion,
+          curve: MotionCanvasController.curve,
+          foregroundDecoration: BoxDecoration(
+            border: selected
+                ? Border.all(color: AfterFrameColors.lime, width: 1.5)
+                : null,
+            gradient: LinearGradient(
+              colors: [Colors.transparent, Colors.black.withValues(alpha: .08)],
+            ),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: AfterFrameColors.lime.withValues(alpha: .12),
+                      blurRadius: 28,
+                    ),
+                  ]
+                : const [],
+          ),
+          child: ready
+              ? ClipRect(
+                  child: FittedBox(
+                    fit: BoxFit.contain,
+                    alignment: Alignment(
+                      clip.focus.x * 2 - 1,
+                      clip.focus.y * 2 - 1,
+                    ),
+                    child: SizedBox(
+                      width: player!.value.size.width,
+                      height: player!.value.size.height,
+                      child: VideoPlayer(player!),
+                    ),
+                  ),
+                )
+              : const ColoredBox(
+                  color: Color(0xFF202126),
+                  child: Center(
+                    child: CircularProgressIndicator(
+                      strokeWidth: 1.5,
+                      color: Colors.white38,
+                    ),
                   ),
                 ),
-              ),
+        ),
       ),
     );
   }
+}
+
+class _PreviewPlaybackButton extends StatelessWidget {
+  const _PreviewPlaybackButton({required this.controller});
+
+  final MotionCanvasController controller;
+
+  @override
+  Widget build(BuildContext context) => IconButton.filledTonal(
+    tooltip: controller.isPlaying ? 'Pause' : 'Play',
+    onPressed: controller.togglePlayback,
+    style: IconButton.styleFrom(
+      backgroundColor: Colors.black.withValues(alpha: .42),
+      foregroundColor: Colors.white,
+    ),
+    icon: Icon(
+      controller.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+    ),
+  );
 }

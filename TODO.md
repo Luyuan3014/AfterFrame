@@ -7,7 +7,7 @@
 - [x] 发布清单强制 UTF-8 无 BOM，并增加 BOM 回归测试。
 - [x] 识别 Gitee 仓库大 raw APK 匿名下载 403，改用公开 Release 附件作为 APK 源。
 - [x] 发布工具要求 ReleaseId、验证三个附件，并禁止默认生成不可用的仓库 raw APK URL。
-- [ ] 创建并上传 `v0.7.1` Gitee Release，发布修复清单；0.7.0 用户需手动覆盖安装一次。
+- [x] 创建并上传 `v0.7.1` Gitee Release，发布修复清单；0.7.0 用户需手动覆盖安装一次。
 
 ## 0.7.0 应用更新
 
@@ -28,6 +28,8 @@
 - [x] 使用 Media3 1.10.1 Transformer 输出 H.264/AAC MP4。
 - [x] 使用 Composition + VideoCompositorSettings 实现最多三路同步 Live 拼图。
 - [x] 保留每路独立裁切、焦点裁剪、统一变速和指定主音轨。
+- [x] 按素材比例自适应选择分栏，默认完整展示、不隐式裁剪，支持在留白内拖动，并将完整素材矩形无损传给 Media3 合成器。
+- [x] 工具面板下滑进入沉浸式 Live 拼图预览，上滑返回编辑。
 - [x] 保留标准 Android Motion Photo 封装和聊天兼容 MP4 分享。
 - [x] 将导出格式聚焦为 Motion Photo 与 MP4。
 

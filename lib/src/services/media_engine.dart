@@ -181,6 +181,7 @@ class MediaEngine {
     int motionTransition = 0,
     List<double> cropFocusX = const [],
     List<double> cropFocusY = const [],
+    List<List<double>> collageRects = const [],
     String format = 'motionPhoto',
   }) async {
     try {
@@ -204,6 +205,7 @@ class MediaEngine {
             'motionTransition': motionTransition,
             'cropFocusX': cropFocusX,
             'cropFocusY': cropFocusY,
+            'collageRects': collageRects,
             'format': format,
             'width': asset.width,
             'height': asset.height,

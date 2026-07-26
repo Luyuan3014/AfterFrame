@@ -227,12 +227,12 @@ class _LivePreviewCardState extends State<LivePreviewCard>
           child: ClipRRect(
             borderRadius: BorderRadius.circular(32),
             child: AspectRatio(
-              aspectRatio: state.asset.aspectRatio.clamp(.62, 1.35).toDouble(),
+              aspectRatio: state.asset.aspectRatio,
               child: Stack(
                 fit: StackFit.expand,
                 children: [
                   if (cover != null)
-                    Image.file(File(cover.path), fit: BoxFit.cover),
+                    Image.file(File(cover.path), fit: BoxFit.contain),
                   if (controller != null && controller.value.isInitialized)
                     _CoverVideo(controller: controller),
                   const DecoratedBox(
@@ -317,7 +317,7 @@ class _CoverVideo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => FittedBox(
-    fit: BoxFit.cover,
+    fit: BoxFit.contain,
     clipBehavior: Clip.hardEdge,
     child: SizedBox(
       width: controller.value.size.width,

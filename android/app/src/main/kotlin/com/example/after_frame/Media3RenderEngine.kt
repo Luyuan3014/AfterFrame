@@ -14,7 +14,6 @@ import androidx.media3.common.OverlaySettings
 import androidx.media3.common.VideoCompositorSettings
 import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.effect.Crop
 import androidx.media3.effect.GaussianBlur
 import androidx.media3.effect.HslAdjustment
 import androidx.media3.effect.Presentation
@@ -32,7 +31,6 @@ import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
-import kotlin.math.abs
 
 /** Media3-only creation engine. It renders MP4 bytes but never publishes media. */
 @UnstableApi
@@ -110,7 +108,7 @@ class Media3RenderEngine(
     }
 
     private fun buildComposition(request: RenderRequest): Composition {
-        if (request.sources.size == 1) {
+        if (request.sources.size == 1 && request.slots.isEmpty()) {
             val source = request.sources.single()
             val item = editedItem(
                 source = source,
@@ -127,7 +125,9 @@ class Media3RenderEngine(
             return Composition.Builder(sequence).build()
         }
 
-        val slots = collageSlots(request.sources.size, request.layout)
+        val slots = request.slots.ifEmpty {
+            collageSlots(request.sources.size, request.layout)
+        }
         val sequences = request.sources.mapIndexed { index, source ->
             EditedMediaItemSequence.withVideoFrom(
                 listOf(
@@ -184,19 +184,18 @@ class Media3RenderEngine(
             .setFrameRate(30)
         if (request.speed != 1f) builder.setSpeed(ConstantSpeedProvider(request.speed))
         if (!removeVideo) {
-            builder.setEffects(Effects(emptyList(), videoEffects(source, request, slot)))
+            builder.setEffects(Effects(emptyList(), videoEffects(request, slot)))
         }
         return builder.build()
     }
 
-    private fun videoEffects(source: Source, request: RenderRequest, slot: Slot?): List<Effect> {
+    private fun videoEffects(request: RenderRequest, slot: Slot?): List<Effect> {
         val effects = mutableListOf<Effect>()
         if (slot != null) {
-            cropForSlot(source, slot)?.let(effects::add)
             effects += Presentation.createForWidthAndHeight(
                 slot.width,
                 slot.height,
-                Presentation.LAYOUT_STRETCH_TO_FIT,
+                Presentation.LAYOUT_SCALE_TO_FIT,
             )
         } else {
             effects += Presentation.createForShortSide(1080)
@@ -216,44 +215,6 @@ class Media3RenderEngine(
             3 -> effects += GaussianBlur(1.2f)
         }
         return effects
-    }
-
-    private fun cropForSlot(source: Source, slot: Slot): Crop? {
-        val size = mediaSize(source.uri)
-        if (size.width <= 0 || size.height <= 0) return null
-        val sourceAspect = size.width.toFloat() / size.height
-        val targetAspect = slot.width.toFloat() / slot.height
-        if (abs(sourceAspect - targetAspect) < .001f) return null
-        return if (sourceAspect > targetAspect) {
-            val visible = (targetAspect / sourceAspect).coerceIn(.01f, 1f)
-            val width = visible * 2f
-            val desiredLeft = source.focusX * 2f - 1f - width / 2f
-            val left = desiredLeft.coerceIn(-1f, 1f - width)
-            Crop(left, left + width, -1f, 1f)
-        } else {
-            val visible = (sourceAspect / targetAspect).coerceIn(.01f, 1f)
-            val height = visible * 2f
-            val center = 1f - source.focusY * 2f
-            val bottom = (center - height / 2f).coerceIn(-1f, 1f - height)
-            Crop(-1f, 1f, bottom, bottom + height)
-        }
-    }
-
-    private fun mediaSize(uri: Uri): Size {
-        val retriever = MediaMetadataRetriever()
-        return try {
-            retriever.setDataSource(context, uri)
-            var width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
-                ?.toIntOrNull() ?: 0
-            var height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
-                ?.toIntOrNull() ?: 0
-            val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
-                ?.toIntOrNull() ?: 0
-            if (rotation == 90 || rotation == 270) width = height.also { height = width }
-            Size(width, height)
-        } finally {
-            retriever.release()
-        }
     }
 
     private fun hasAudio(uri: Uri): Boolean {
@@ -290,11 +251,14 @@ class Media3RenderEngine(
         val uri: Uri,
         val startMs: Long,
         val endMs: Long,
-        val focusX: Float,
-        val focusY: Float,
     )
 
-    private data class Slot(val x: Int, val y: Int, val width: Int, val height: Int)
+    private data class Slot(
+        val x: Int,
+        val y: Int,
+        val width: Int,
+        val height: Int,
+    )
 
     private data class RenderRequest(
         val sources: List<Source>,
@@ -304,6 +268,7 @@ class Media3RenderEngine(
         val layout: Int,
         val audioSourceIndex: Int,
         val transition: Int,
+        val slots: List<Slot>,
     ) {
         val canOptimizeTrim: Boolean
             get() = sources.size == 1 && speed == 1f && !enhancement && transition == 0
@@ -317,8 +282,7 @@ class Media3RenderEngine(
                 val uris = collage.ifEmpty { listOf(call.argument<String>("uri")!!) }.map(Uri::parse)
                 val starts = call.argument<List<Number>>("collageStartMs").orEmpty()
                 val ends = call.argument<List<Number>>("collageEndMs").orEmpty()
-                val focusX = call.argument<List<Number>>("cropFocusX").orEmpty()
-                val focusY = call.argument<List<Number>>("cropFocusY").orEmpty()
+                val encodedRects = call.argument<List<*>>("collageRects").orEmpty()
                 val sources = uris.mapIndexed { index, uri ->
                     val start = starts.getOrNull(index)?.toLong() ?: defaultStart
                     val end = ends.getOrNull(index)?.toLong() ?: defaultEnd
@@ -327,10 +291,27 @@ class Media3RenderEngine(
                         uri = uri,
                         startMs = start,
                         endMs = end,
-                        focusX = (focusX.getOrNull(index)?.toFloat() ?: .5f).coerceIn(0f, 1f),
-                        focusY = (focusY.getOrNull(index)?.toFloat() ?: .5f).coerceIn(0f, 1f),
                     )
                 }
+                val customSlots = encodedRects.take(sources.size).mapNotNull { encoded ->
+                    val values = encoded as? List<*> ?: return@mapNotNull null
+                    if (values.size < 4) return@mapNotNull null
+                    val x = (values[0] as? Number)?.toDouble() ?: return@mapNotNull null
+                    val y = (values[1] as? Number)?.toDouble() ?: return@mapNotNull null
+                    val width = (values[2] as? Number)?.toDouble() ?: return@mapNotNull null
+                    val height = (values[3] as? Number)?.toDouble() ?: return@mapNotNull null
+                    if (width <= 0.0 || height <= 0.0) return@mapNotNull null
+                    val left = (x.coerceIn(0.0, 1.0) * 1080).toInt()
+                    val top = (y.coerceIn(0.0, 1.0) * 1920).toInt()
+                    val right = ((x + width).coerceIn(0.0, 1.0) * 1080).toInt()
+                    val bottom = ((y + height).coerceIn(0.0, 1.0) * 1920).toInt()
+                    Slot(
+                        left,
+                        top,
+                        (right - left).coerceAtLeast(1),
+                        (bottom - top).coerceAtLeast(1),
+                    )
+                }.takeIf { it.size == sources.size }.orEmpty()
                 return RenderRequest(
                     sources = sources,
                     speed = (call.argument<Number>("playbackSpeed")?.toFloat() ?: 1f)
@@ -341,6 +322,7 @@ class Media3RenderEngine(
                     audioSourceIndex = (call.argument<Number>("collageAudioSourceIndex")?.toInt() ?: 0)
                         .coerceIn(0, sources.lastIndex),
                     transition = call.argument<Number>("motionTransition")?.toInt() ?: 0,
+                    slots = customSlots,
                 )
             }
         }

@@ -39,6 +39,21 @@ class MotionCanvasController extends ChangeNotifier {
   bool isPlaying = false;
   bool isExporting = false;
   bool musicEnabled = true;
+  bool isImmersivePreview = false;
+
+  AdaptiveCanvasPlan get canvasPlan => layout.planFor(
+    clips.map((clip) => clip.asset.aspectRatio).toList(growable: false),
+  );
+
+  List<CanvasSlot> get contentSlots => canvasPlan.fittedContentSlots(
+    canvasAspectRatio: layout.aspectRatio,
+    sourceAspectRatios: clips
+        .map((clip) => clip.asset.aspectRatio)
+        .toList(growable: false),
+    focuses: clips
+        .map((clip) => (x: clip.focus.x, y: clip.focus.y))
+        .toList(growable: false),
+  );
 
   int get durationMs => clips
       .map((clip) => clip.durationMs)
@@ -69,6 +84,31 @@ class MotionCanvasController extends ChangeNotifier {
 
   void selectClip(int index) {
     activeClipIndex = index.clamp(0, clips.length - 1);
+    notifyListeners();
+  }
+
+  void moveClipFocus(int index, double deltaX, double deltaY) {
+    final focus = clips[index].focus;
+    clips[index] = clips[index].copyWith(
+      focus: focus.copyWith(
+        x: (focus.x + deltaX).clamp(0, 1),
+        y: (focus.y + deltaY).clamp(0, 1),
+        confidence: 1,
+      ),
+    );
+    activeClipIndex = index;
+    notifyListeners();
+  }
+
+  void resetClipFocus(int index) {
+    clips[index] = clips[index].copyWith(focus: const CropFocus());
+    activeClipIndex = index;
+    notifyListeners();
+  }
+
+  void setImmersivePreview(bool value) {
+    if (isImmersivePreview == value) return;
+    isImmersivePreview = value;
     notifyListeners();
   }
 

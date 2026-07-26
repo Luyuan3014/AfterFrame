@@ -123,7 +123,7 @@ class CollageLayoutSelector extends StatelessWidget {
             borderRadius: BorderRadius.circular(4),
             child: Image.file(
               File(frames[index.clamp(0, frames.length - 1)].path),
-              fit: BoxFit.cover,
+              fit: BoxFit.contain,
             ),
           );
     return Expanded(flex: flex, child: child);

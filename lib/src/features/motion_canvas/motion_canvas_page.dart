@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../localization/app_localizations.dart';
 import '../../models/media_asset.dart';
@@ -79,6 +80,13 @@ class _MotionCanvasPageState extends State<MotionCanvasPage> {
     } finally {
       if (mounted) _canvas.setExporting(false);
     }
+  }
+
+  Future<void> _setImmersivePreview(bool value) async {
+    _canvas.setImmersivePreview(value);
+    await SystemChrome.setEnabledSystemUIMode(
+      value ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
+    );
   }
 
   Future<void> _editClip(int index) async {
@@ -229,6 +237,9 @@ class _MotionCanvasPageState extends State<MotionCanvasPage> {
 
   @override
   void dispose() {
+    if (_canvas.isImmersivePreview) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    }
     _canvas.removeListener(_refresh);
     _canvas.dispose();
     super.dispose();
@@ -239,149 +250,272 @@ class _MotionCanvasPageState extends State<MotionCanvasPage> {
     final zh = context.l10n.isChinese;
     return Scaffold(
       backgroundColor: const Color(0xFF0B0B0D),
-      appBar: AppBar(
-        title: Column(
+      appBar: _canvas.isImmersivePreview
+          ? null
+          : AppBar(
+              title: Column(
+                children: [
+                  Text(
+                    zh ? '动态记忆画布' : 'Motion Canvas',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -.2,
+                    ),
+                  ),
+                  Text(
+                    _canvas.template.title(zh).toUpperCase(),
+                    style: const TextStyle(
+                      fontSize: 8,
+                      color: AfterFrameColors.muted,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: _canvas.isExporting ? null : _export,
+                  child: Text(
+                    zh ? '导出' : 'Export',
+                    style: const TextStyle(
+                      color: AfterFrameColors.lime,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+      body: SafeArea(
+        top: !_canvas.isImmersivePreview,
+        bottom: !_canvas.isImmersivePreview,
+        child: Stack(
           children: [
-            Text(
-              zh ? '动态记忆画布' : 'Motion Canvas',
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -.2,
+            if (!_canvas.isImmersivePreview)
+              Positioned.fill(
+                child: LayoutBuilder(
+                  builder: (context, constraints) => Column(
+                    children: [
+                      Expanded(
+                        child: SingleChildScrollView(
+                          physics: const BouncingScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(18, 6, 18, 16),
+                          child: Column(
+                            children: [
+                              Center(
+                                child: ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    maxWidth: 430,
+                                    maxHeight: constraints.maxHeight * .58,
+                                  ),
+                                  child: AspectRatio(
+                                    aspectRatio: _canvas.layout.aspectRatio,
+                                    child: MotionCanvasRenderer(
+                                      controller: _canvas,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                              _MasterTimeline(controller: _canvas),
+                            ],
+                          ),
+                        ),
+                      ),
+                      GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onVerticalDragEnd: (details) {
+                          if ((details.primaryVelocity ?? 0) > 420) {
+                            _setImmersivePreview(true);
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.only(top: 14, bottom: 6),
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF141519),
+                            borderRadius: BorderRadius.vertical(
+                              top: Radius.circular(28),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black45,
+                                blurRadius: 24,
+                                offset: Offset(0, -8),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 42,
+                                height: 4,
+                                margin: const EdgeInsets.only(bottom: 8),
+                                decoration: BoxDecoration(
+                                  color: Colors.white24,
+                                  borderRadius: BorderRadius.circular(99),
+                                ),
+                              ),
+                              Text(
+                                zh ? '下滑进入全屏预览' : 'Swipe down for full preview',
+                                style: const TextStyle(
+                                  fontSize: 9,
+                                  color: Colors.white38,
+                                  letterSpacing: .5,
+                                ),
+                              ),
+                              const SizedBox(height: 7),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 18,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Text(
+                                      zh ? '素材轨道' : 'CLIP TRACK',
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        color: AfterFrameColors.muted,
+                                        letterSpacing: 1.4,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    Text(
+                                      zh ? '长按拖动排序' : 'Hold to reorder',
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.white30,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              MotionClipTrack(
+                                controller: _canvas,
+                                onEdit: _editClip,
+                              ),
+                              CreativeToolDock(controller: _canvas),
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  18,
+                                  4,
+                                  18,
+                                  8,
+                                ),
+                                child: SizedBox(
+                                  width: double.infinity,
+                                  child: FilledButton.icon(
+                                    onPressed: _canvas.isExporting
+                                        ? null
+                                        : () {
+                                            _canvas.createMemory();
+                                            _export();
+                                          },
+                                    icon: _canvas.isExporting
+                                        ? const SizedBox.square(
+                                            dimension: 18,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: Colors.black,
+                                            ),
+                                          )
+                                        : const Icon(
+                                            Icons.auto_awesome_rounded,
+                                          ),
+                                    label: Text(
+                                      _canvas.isExporting
+                                          ? (zh
+                                                ? '正在创造记忆…'
+                                                : 'Creating memory…')
+                                          : 'Create Memory',
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
-            Text(
-              _canvas.template.title(zh).toUpperCase(),
-              style: const TextStyle(
-                fontSize: 8,
-                color: AfterFrameColors.muted,
-                letterSpacing: 1.5,
+            if (_canvas.isImmersivePreview)
+              Positioned.fill(
+                child: _ImmersivePreview(
+                  controller: _canvas,
+                  onExit: () => _setImmersivePreview(false),
+                ),
               ),
-            ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: _canvas.isExporting ? null : _export,
-            child: Text(
-              zh ? '导出' : 'Export',
-              style: const TextStyle(
-                color: AfterFrameColors.lime,
-                fontWeight: FontWeight.w700,
+      ),
+    );
+  }
+}
+
+class _ImmersivePreview extends StatelessWidget {
+  const _ImmersivePreview({required this.controller, required this.onExit});
+
+  final MotionCanvasController controller;
+  final VoidCallback onExit;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    behavior: HitTestBehavior.opaque,
+    onVerticalDragEnd: (details) {
+      if ((details.primaryVelocity ?? 0) < -350) onExit();
+    },
+    child: ColoredBox(
+      color: Colors.black,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Center(
+            child: AspectRatio(
+              aspectRatio: controller.layout.aspectRatio,
+              child: MotionCanvasRenderer(
+                controller: controller,
+                showChrome: false,
+              ),
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 18,
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white54,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                  const SizedBox(height: 9),
+                  const Text(
+                    '上滑返回编辑',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 11,
+                      letterSpacing: .4,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
         ],
       ),
-      body: SafeArea(
-        top: false,
-        child: LayoutBuilder(
-          builder: (context, constraints) => Column(
-            children: [
-              Expanded(
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(18, 6, 18, 16),
-                  child: Column(
-                    children: [
-                      Center(
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxWidth: 430,
-                            maxHeight: constraints.maxHeight * .51,
-                          ),
-                          child: AspectRatio(
-                            aspectRatio: 9 / 13,
-                            child: MotionCanvasRenderer(controller: _canvas),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      _MasterTimeline(controller: _canvas),
-                    ],
-                  ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.only(top: 14, bottom: 6),
-                decoration: const BoxDecoration(
-                  color: Color(0xFF141519),
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black45,
-                      blurRadius: 24,
-                      offset: Offset(0, -8),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 18),
-                      child: Row(
-                        children: [
-                          Text(
-                            zh ? '素材轨道' : 'CLIP TRACK',
-                            style: const TextStyle(
-                              fontSize: 10,
-                              color: AfterFrameColors.muted,
-                              letterSpacing: 1.4,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const Spacer(),
-                          Text(
-                            zh ? '长按拖动排序' : 'Hold to reorder',
-                            style: const TextStyle(
-                              fontSize: 10,
-                              color: Colors.white30,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    MotionClipTrack(controller: _canvas, onEdit: _editClip),
-                    CreativeToolDock(controller: _canvas),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 4, 18, 8),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: _canvas.isExporting
-                              ? null
-                              : () {
-                                  _canvas.createMemory();
-                                  _export();
-                                },
-                          icon: _canvas.isExporting
-                              ? const SizedBox.square(
-                                  dimension: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.black,
-                                  ),
-                                )
-                              : const Icon(Icons.auto_awesome_rounded),
-                          label: Text(
-                            _canvas.isExporting
-                                ? (zh ? '正在创造记忆…' : 'Creating memory…')
-                                : 'Create Memory',
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+    ),
+  );
 }
 
 class _MasterTimeline extends StatelessWidget {

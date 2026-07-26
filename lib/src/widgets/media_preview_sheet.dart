@@ -134,16 +134,12 @@ class _MediaPreviewSheetState extends State<MediaPreviewSheet> {
                 child: ColoredBox(
                   color: Colors.black,
                   child: AspectRatio(
-                    aspectRatio: ready
-                        ? controller!.value.aspectRatio
-                              .clamp(.55, 1.8)
-                              .toDouble()
-                        : 9 / 16,
+                    aspectRatio: ready ? controller!.value.aspectRatio : 9 / 16,
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
                         if (widget.coverPath case final path?)
-                          Image.file(File(path), fit: BoxFit.cover),
+                          Image.file(File(path), fit: BoxFit.contain),
                         if (ready)
                           FittedBox(
                             fit: BoxFit.contain,
