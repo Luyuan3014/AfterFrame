@@ -1,0 +1,6 @@
+# Copy this file to android/key.properties and replace every placeholder.
+# android/key.properties and *.jks are ignored by Git.
+storeFile=../keystores/afterframe-release.jks
+storePassword=REPLACE_WITH_A_LONG_UNIQUE_PASSWORD
+keyAlias=afterframe
+keyPassword=REPLACE_WITH_A_LONG_UNIQUE_PASSWORD

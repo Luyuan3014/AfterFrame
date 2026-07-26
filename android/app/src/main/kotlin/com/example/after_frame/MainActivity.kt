@@ -25,12 +25,15 @@ class MainActivity : FlutterActivity() {
     private lateinit var renderEngine: Media3RenderEngine
     private lateinit var exportService: ExportService
     private lateinit var exportIndex: ExportIndex
+    private lateinit var updateManager: AppUpdateManager
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         exportIndex = ExportIndex(this)
         renderEngine = Media3RenderEngine(this)
         exportService = ExportService(this, executor, renderEngine, exportIndex)
+        updateManager = AppUpdateManager(applicationContext)
+        updateManager.reconcileDownload()
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result -> handle(call, result) }
     }
@@ -89,8 +92,22 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
             }
+            "getUpdateState" -> {
+                updateManager.reconcileDownload()
+                result.success(updateManager.currentState())
+            }
+            "checkForUpdate" -> background(result) {
+                updateManager.check(call.argument<String>("manifestUrl")!!)
+            }
+            "startUpdateDownload" -> result.success(updateManager.startDownload())
+            "installVerifiedUpdate" -> background(result) { updateManager.install() }
             else -> result.notImplemented()
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::updateManager.isInitialized) updateManager.resumePendingInstall()
     }
 
     private fun requestVideoAccess(result: MethodChannel.Result) {

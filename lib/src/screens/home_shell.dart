@@ -9,6 +9,7 @@ import '../live_editor/live_editor_page.dart';
 import '../features/motion_canvas/motion_canvas_page.dart';
 import '../localization/app_localizations.dart';
 import '../widgets/media_preview_sheet.dart';
+import '../widgets/app_update_card.dart';
 import 'video_picker_screen.dart';
 
 class HomeShell extends StatefulWidget {
@@ -791,6 +792,7 @@ class _Profile extends StatelessWidget {
         const SizedBox(height: 30),
         _LanguageSettings(controller: language),
         const SizedBox(height: 10),
+        const AppUpdateCard(),
         for (final item in [
           (
             Icons.photo_library_outlined,
@@ -803,7 +805,7 @@ class _Profile extends StatelessWidget {
             l10n.text('originalQuality'),
           ),
           (Icons.folder_zip_outlined, l10n.text('liveContainer'), '.live'),
-          (Icons.info_outline_rounded, l10n.text('about'), '0.3.0'),
+          (Icons.info_outline_rounded, l10n.text('about'), 'AfterFrame'),
         ])
           Card(
             margin: const EdgeInsets.only(bottom: 10),

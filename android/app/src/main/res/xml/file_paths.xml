@@ -3,4 +3,7 @@
     <files-path
         name="afterframe_exports"
         path="afterframe/exports/" />
+    <external-files-path
+        name="afterframe_updates"
+        path="Download/updates/" />
 </paths>

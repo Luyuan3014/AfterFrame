@@ -1,5 +1,21 @@
 # AfterFrame 媒体架构
 
+## App Update 模块
+
+更新链路独立于媒体引擎，但暂时复用现有 MethodChannel：Flutter 的 `AppUpdateService` 负责展示状态，Android 的 `AppUpdateManager` 是唯一安全决策点，`DownloadManager` 负责可跨进程存续的后台下载，`UpdateDownloadReceiver` 在下载完成后触发校验。
+
+生产清单固定为 `https://gitee.com/luyuan567/after_frame_update/raw/master/update.json`。清单和 SHA-1 位于 `master`，大 APK 使用公开 Gitee Release 的稳定 `/releases/download/{tag}/{filename}` 路由；先完整上传 Release，最后原子提交清单，避免客户端看见半成品。
+
+状态机为 `idle/no_update → available → downloading → verifying → ready → system installer`，失败统一进入 `error`。状态与下载 ID 持久化在 SharedPreferences；App 重启时会查询 DownloadManager 并恢复下载或重新执行校验。安装新版本后，如果持久化目标版本已不再高于当前版本，旧状态和 APK 会自动清理。
+
+安全边界如下：
+
+- Gitee 清单、APK 和 SHA-1 只接受 HTTPS Gitee 及官方 `raw.giteeusercontent.com` 内容域名；清单包名必须等于当前 `applicationId`。元数据解析会显式剥离 UTF-8 BOM。
+- 每个 ABI 资产自己的实际 `versionCode` 是升级顺序的唯一依据。Flutter split APK 会产生不同的 ABI versionCode，因此选定当前 ABI 后才比较，并在检查、下载前和安装前重复执行严格大于判断。
+- 当前 ABI 从已安装 APK 的 `lib/<abi>/libapp.so` 和运行时 native library 目录交叉确定；下载 APK 必须只含同一个目标 ABI。
+- SHA-1 按用户发布文件校验，同时用 Android PackageManager 比对 APK 包名、版本和签名证书。SHA-1 不承担发布者身份认证，签名匹配才是防止第三方替换 APK 的核心保护。
+- Android 系统安装器是最终安装边界；未知来源授权和安装确认不可由普通应用静默绕过。
+
 ## 设计结论
 
 AfterFrame 的核心是“视频片段 → Motion Photo/MP4”和最多三路视频的同步 Live 拼图。Media3 1.10.1 已覆盖这些能力，不需要 FFmpegKit：

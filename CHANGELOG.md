@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.1 - 2026-07-26
+
+- 修复 Gitee `update.json` 带 UTF-8 BOM 时 Android `JSONObject` 在版本比较前解析失败，生成端改为 UTF-8 无 BOM，客户端同时兼容历史 BOM。
+- 修复安全域名白名单误拒绝 Gitee raw 官方重定向域名 `raw.giteeusercontent.com`，保留 HTTPS 和 Gitee 主机限制。
+- 实测确认 Gitee 对仓库普通大 APK 的匿名 raw 请求返回 403；APK 下载源迁移为公开 Gitee Release 附件。
+- 发布工具新增 ReleaseId/附件完整性校验，默认禁止生成不可匿名下载的仓库 raw APK URL。
+- 原子发布工具显式按 UTF-8 读取无 BOM 清单，避免 Windows PowerShell 使用系统代码页破坏中文更新说明。
+- 0.7.0 因在清单解析前失败而无法远端自愈，需手动覆盖安装一次 0.7.1；之后同版本检查和 App 内升级恢复正常。
+
+## 0.7.0 - 2026-07-26
+
+- 增加 Gitee 公开仓库应用更新，使用 `update.json` 明确版本与三种 split APK 资源。
+- 仅当远端 `versionCode` 严格大于当前版本时允许更新，并在检查、下载和安装前重复阻止版本回退。
+- 从已安装 APK 确认当前 ABI，只下载同类型 APK；安装前同时验证 SHA-1、大小、包名、版本、ABI 和签名证书。
+- 使用 Android DownloadManager 后台下载，支持进程退出后的状态恢复、下载完成校验和系统安装器衔接。
+- “我的”页增加检查更新、下载进度、校验与安装状态，以及符合 Material 交互的更新说明底部面板。
+- 增加 `tool/prepare_gitee_update.ps1`，从实际构建产物生成三份 SHA-1 和发布清单，减少人工发布错误。
+- 增加 `key.properties` 正式签名支持，发布工具默认拒绝 debug 签名与三包签名不一致，避免首发后因更换签名无法覆盖升级。
+- 接入生产 Gitee 仓库 `luyuan567/after_frame_update`，默认读取 `master/update.json`，无需额外构建参数。
+- 增加 Gitee 原子发布预演/推送脚本和独立发布手册，避免网页逐个上传造成清单与 APK 短暂不一致。
+
 ## 0.6.0 - Media3-only media engine
 
 - 移除 FFmpegKit/FFprobe、相关 ProGuard/JNI 打包规则和约 67MB native AAR 依赖。
