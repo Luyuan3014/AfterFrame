@@ -38,11 +38,19 @@ class CreationModeSelector extends StatelessWidget {
                 title: l10n.text('motionCollage'),
                 description: l10n.text('collageDescription'),
                 selected: state.mode == CreationMode.motionCollage,
+                enabled: state.canUseCollage,
                 onTap: () => state.setMode(CreationMode.motionCollage),
               ),
             ),
           ],
         ),
+        if (!state.canUseCollage) ...[
+          const SizedBox(height: 9),
+          Text(
+            l10n.text('collageNeedsSources'),
+            style: const TextStyle(color: AfterFrameColors.muted, fontSize: 10),
+          ),
+        ],
       ],
     );
   }
@@ -83,6 +91,7 @@ class _ModeCard extends StatelessWidget {
     required this.description,
     required this.selected,
     required this.onTap,
+    this.enabled = true,
   });
 
   final IconData icon;
@@ -90,6 +99,7 @@ class _ModeCard extends StatelessWidget {
   final String description;
   final bool selected;
   final VoidCallback onTap;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) => Semantics(
@@ -98,7 +108,7 @@ class _ModeCard extends StatelessWidget {
     child: Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: onTap,
+        onTap: enabled ? onTap : null,
         borderRadius: BorderRadius.circular(22),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 240),
@@ -108,7 +118,9 @@ class _ModeCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: selected
                 ? AfterFrameColors.lime.withValues(alpha: .1)
-                : AfterFrameColors.glassSoft,
+                : AfterFrameColors.glassSoft.withValues(
+                    alpha: enabled ? 1 : .45,
+                  ),
             borderRadius: BorderRadius.circular(22),
             border: Border.all(
               color: selected
@@ -133,7 +145,9 @@ class _ModeCard extends StatelessWidget {
                   Icon(
                     icon,
                     size: 21,
-                    color: selected ? AfterFrameColors.lime : Colors.white70,
+                    color: selected
+                        ? AfterFrameColors.lime
+                        : Colors.white.withValues(alpha: enabled ? .7 : .28),
                   ),
                   const Spacer(),
                   AnimatedOpacity(

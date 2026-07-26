@@ -19,6 +19,14 @@ void main() {
     height: 1920,
     rotation: 0,
   );
+  const secondAsset = MediaAsset(
+    uri: 'content://video/2',
+    name: 'second.mp4',
+    durationMs: 4200,
+    width: 1920,
+    height: 1080,
+    rotation: 0,
+  );
 
   testWidgets('small screen can switch mode and expand More Settings', (
     tester,
@@ -27,7 +35,11 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    final state = LiveEditorState(asset: asset, mode: CreationMode.liveFrame);
+    final state = LiveEditorState(
+      asset: asset,
+      assets: const [asset, secondAsset],
+      mode: CreationMode.liveFrame,
+    );
     addTearDown(state.dispose);
 
     await tester.pumpWidget(_host(state));

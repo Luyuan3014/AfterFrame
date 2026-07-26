@@ -10,13 +10,8 @@ import '../localization/app_localizations.dart';
 import '../widgets/media_preview_sheet.dart';
 
 class VideoPickerScreen extends StatefulWidget {
-  const VideoPickerScreen({
-    super.key,
-    required this.engine,
-    required this.mode,
-  });
+  const VideoPickerScreen({super.key, required this.engine});
   final MediaEngine engine;
-  final int mode;
 
   @override
   State<VideoPickerScreen> createState() => _VideoPickerScreenState();
@@ -78,11 +73,7 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
       if (index >= 0) {
         _selectedUris.removeAt(index);
       } else {
-        if (widget.mode == 0) {
-          _selectedUris
-            ..clear()
-            ..add(item.uri);
-        } else if (_selectedUris.length < 3) {
+        if (_selectedUris.length < 3) {
           _selectedUris.add(item.uri);
         } else {
           WidgetsBinding.instance.addPostFrameCallback(
@@ -97,9 +88,7 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
       showMediaPreview(context, uri: item.uri, title: item.name);
 
   Future<void> _submit() async {
-    if (_selectedUris.isEmpty ||
-        (widget.mode == 1 && _selectedUris.length < 2) ||
-        _submitting) {
+    if (_selectedUris.isEmpty || _submitting) {
       return;
     }
     setState(() => _submitting = true);
@@ -147,7 +136,7 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              l10n.text(widget.mode == 1 ? 'pickCollageVideos' : 'pickVideo'),
+              l10n.text('pickStudioVideos'),
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
             ),
             Text(
@@ -169,7 +158,6 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
           ? null
           : _SelectionBar(
               count: _selectedUris.length,
-              mode: widget.mode,
               loading: _submitting,
               onSubmit: _submit,
             ),
@@ -428,12 +416,10 @@ class _ThumbnailRetry extends StatelessWidget {
 class _SelectionBar extends StatelessWidget {
   const _SelectionBar({
     required this.count,
-    required this.mode,
     required this.loading,
     required this.onSubmit,
   });
   final int count;
-  final int mode;
   final bool loading;
   final VoidCallback onSubmit;
 
@@ -457,7 +443,7 @@ class _SelectionBar extends StatelessWidget {
               ),
             ),
             FilledButton(
-              onPressed: loading || (mode == 1 && count < 2) ? null : onSubmit,
+              onPressed: loading ? null : onSubmit,
               style: FilledButton.styleFrom(
                 minimumSize: const Size(116, 48),
                 padding: const EdgeInsets.symmetric(horizontal: 22),
@@ -470,11 +456,7 @@ class _SelectionBar extends StatelessWidget {
                         color: Colors.black,
                       ),
                     )
-                  : Text(
-                      l10n.text(mode == 1 ? 'addCount' : 'doneCount', {
-                        'count': count,
-                      }),
-                    ),
+                  : Text(l10n.text('continueCount', {'count': count})),
             ),
           ],
         ),

@@ -6,7 +6,6 @@ import '../models/media_asset.dart';
 import '../services/media_engine.dart';
 import '../theme.dart';
 import '../live_editor/live_editor_page.dart';
-import '../features/motion_canvas/motion_canvas_page.dart';
 import '../localization/app_localizations.dart';
 import '../widgets/media_preview_sheet.dart';
 import '../widgets/app_update_card.dart';
@@ -49,25 +48,21 @@ class _HomeShellState extends State<HomeShell> {
     }
   }
 
-  Future<void> _create([int mode = 0]) async {
+  Future<void> _create() async {
     if (_picking) return;
     setState(() => _picking = true);
     try {
       final assets = await Navigator.of(context).push<List<MediaAsset>>(
-        MaterialPageRoute(
-          builder: (_) => VideoPickerScreen(engine: _engine, mode: mode),
-        ),
+        MaterialPageRoute(builder: (_) => VideoPickerScreen(engine: _engine)),
       );
       if (!mounted || assets == null || assets.isEmpty) return;
       final result = await Navigator.of(context).push<LiveExport>(
         MaterialPageRoute(
-          builder: (_) => mode == 1
-              ? MotionCanvasPage(assets: assets, engine: _engine)
-              : LiveEditorPage(
-                  assets: assets,
-                  engine: _engine,
-                  initialMode: mode,
-                ),
+          builder: (_) => LiveEditorPage(
+            assets: assets,
+            engine: _engine,
+            initialMode: assets.length > 1 ? 1 : 0,
+          ),
         ),
       );
       if (result != null && mounted) {
@@ -214,7 +209,7 @@ class _HomeShellState extends State<HomeShell> {
 
 class _Discover extends StatelessWidget {
   const _Discover({required this.onCreate, required this.loading});
-  final ValueChanged<int> onCreate;
+  final VoidCallback onCreate;
   final bool loading;
 
   @override
@@ -277,7 +272,7 @@ class _Discover extends StatelessWidget {
           style: const TextStyle(color: AfterFrameColors.muted, fontSize: 15),
         ),
         const SizedBox(height: 28),
-        _HeroCreate(onTap: () => onCreate(0), loading: loading),
+        _HeroCreate(onTap: onCreate, loading: loading),
         const SizedBox(height: 34),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -296,29 +291,7 @@ class _Discover extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 14),
-        Row(
-          children: [
-            Expanded(
-              child: _ModeCard(
-                icon: Icons.motion_photos_on_rounded,
-                color: AfterFrameColors.coral,
-                title: l10n.text('liveFrame'),
-                detail: l10n.text('liveFrameDetail'),
-                onTap: () => onCreate(0),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _ModeCard(
-                icon: Icons.grid_on_rounded,
-                color: AfterFrameColors.violet,
-                title: l10n.text('motionCollage'),
-                detail: l10n.text('motionCollageDetail'),
-                onTap: () => onCreate(1),
-              ),
-            ),
-          ],
-        ),
+        _StudioEntry(onTap: onCreate),
         const SizedBox(height: 12),
         const _TipCard(),
       ],
@@ -441,54 +414,60 @@ class _HeroCreate extends StatelessWidget {
   }
 }
 
-class _ModeCard extends StatelessWidget {
-  const _ModeCard({
-    required this.icon,
-    required this.color,
-    required this.title,
-    required this.detail,
-    required this.onTap,
-  });
-  final IconData icon;
-  final Color color;
-  final String title;
-  final String detail;
+class _StudioEntry extends StatelessWidget {
+  const _StudioEntry({required this.onTap});
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Card(
-    child: InkWell(
-      borderRadius: BorderRadius.circular(24),
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.all(17),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 43,
-              height: 43,
-              decoration: BoxDecoration(
-                color: color,
-                borderRadius: BorderRadius.circular(14),
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return Card(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(24),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: AfterFrameColors.lime,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(
+                  Icons.video_collection_rounded,
+                  color: Colors.black,
+                ),
               ),
-              child: Icon(icon, color: Colors.black),
-            ),
-            const SizedBox(height: 28),
-            Text(title, style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 4),
-            Text(
-              detail,
-              style: const TextStyle(
-                color: AfterFrameColors.muted,
-                fontSize: 12,
+              const SizedBox(width: 15),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l10n.text('studioEntryTitle'),
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      l10n.text('studioEntryDetail'),
+                      style: const TextStyle(
+                        color: AfterFrameColors.muted,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+              const Icon(Icons.arrow_forward_rounded, color: Colors.white54),
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _TipCard extends StatelessWidget {

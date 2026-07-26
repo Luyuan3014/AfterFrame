@@ -17,8 +17,6 @@ enum CoverSelectionMode { suggested, manual }
 
 enum CoverSuggestion { laterMoment, middleMoment, earlierMoment }
 
-enum CollageLayout { splitVertical, splitHorizontal, featureGrid }
-
 /// Single source of truth for the Live creation workspace.
 ///
 /// Future templates and effects should be added here instead of being owned by
@@ -66,8 +64,6 @@ class LiveEditorState extends ChangeNotifier {
   bool enhancementEnabled;
   CoverSelectionMode coverSelectionMode = CoverSelectionMode.suggested;
   CoverSuggestion selectedSuggestion = CoverSuggestion.laterMoment;
-  CollageLayout collageLayout = CollageLayout.splitVertical;
-  int collageAudioSourceIndex = 0;
 
   /// UI-level extension point. Phase one deliberately does not pass speed to
   /// the native export engine, so video processing behavior remains unchanged.
@@ -90,7 +86,7 @@ class LiveEditorState extends ChangeNotifier {
 
   int get liveLength => endTime - startTime;
 
-  int get collageSourceCount => assets.length.clamp(1, 3);
+  bool get canUseCollage => assets.length >= 2;
 
   int get bestMomentTime {
     if (frames.isEmpty) return coverFrame;
@@ -134,21 +130,21 @@ class LiveEditorState extends ChangeNotifier {
   }
 
   void setMode(CreationMode value) {
-    if (mode == value) return;
+    if (mode == value ||
+        (value == CreationMode.motionCollage && !canUseCollage)) {
+      return;
+    }
     mode = value;
-    notifyListeners();
-  }
-
-  void setCollageLayout(CollageLayout value) {
-    if (collageLayout == value) return;
-    collageLayout = value;
-    notifyListeners();
-  }
-
-  void setCollageAudioSource(int value) {
-    final next = value.clamp(0, collageSourceCount - 1);
-    if (collageAudioSourceIndex == next) return;
-    collageAudioSourceIndex = next;
+    duration = value == CreationMode.motionCollage
+        ? assets
+              .take(3)
+              .map((item) => item.durationMs)
+              .reduce((current, next) => current < next ? current : next)
+        : asset.durationMs;
+    startTime = 0;
+    endTime = duration.clamp(1, 6000).toInt();
+    coverFrame = coverFrame.clamp(startTime, endTime).toInt();
+    currentPosition = currentPosition.clamp(startTime, endTime).toInt();
     notifyListeners();
   }
 

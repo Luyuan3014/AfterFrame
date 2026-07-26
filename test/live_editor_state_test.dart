@@ -91,33 +91,25 @@ void main() {
     expect(state.currentPosition, state.coverFrame);
   });
 
-  test(
-    'collage layout, audio priority and shortest duration are centralized',
-    () {
-      const short = MediaAsset(
-        uri: 'content://video/2',
-        name: 'short.mp4',
-        durationMs: 3200,
-        width: 1920,
-        height: 1080,
-        rotation: 0,
-      );
-      final state = LiveEditorState(
-        asset: asset,
-        assets: const [asset, short],
-        mode: CreationMode.motionCollage,
-      );
-      addTearDown(state.dispose);
+  test('collage mode uses the shortest source duration', () {
+    const short = MediaAsset(
+      uri: 'content://video/2',
+      name: 'short.mp4',
+      durationMs: 3200,
+      width: 1920,
+      height: 1080,
+      rotation: 0,
+    );
+    final state = LiveEditorState(
+      asset: asset,
+      assets: const [asset, short],
+      mode: CreationMode.motionCollage,
+    );
+    addTearDown(state.dispose);
 
-      expect(state.duration, 3200);
-      expect(state.endTime, 3200);
-      state.setCollageLayout(CollageLayout.featureGrid);
-      state.setCollageAudioSource(1);
-
-      expect(state.collageLayout, CollageLayout.featureGrid);
-      expect(state.collageAudioSourceIndex, 1);
-    },
-  );
+    expect(state.duration, 3200);
+    expect(state.endTime, 3200);
+  });
 
   test('manual cover selection and enhancement are reflected in state', () {
     final state = LiveEditorState(asset: asset, mode: CreationMode.liveFrame);
@@ -141,5 +133,41 @@ void main() {
 
     state.setCurrentPosition(7000);
     expect(state.currentPosition, 4000);
+  });
+
+  test('single-source Studio refuses an invalid collage mode', () {
+    final state = LiveEditorState(asset: asset, mode: CreationMode.liveFrame);
+    addTearDown(state.dispose);
+
+    state.setMode(CreationMode.motionCollage);
+
+    expect(state.canUseCollage, isFalse);
+    expect(state.mode, CreationMode.liveFrame);
+  });
+
+  test('Studio mode switching recalculates the shared editing window', () {
+    const short = MediaAsset(
+      uri: 'content://video/short',
+      name: 'short.mp4',
+      durationMs: 2400,
+      width: 1920,
+      height: 1080,
+      rotation: 0,
+    );
+    final state = LiveEditorState(
+      asset: asset,
+      assets: const [asset, short],
+      mode: CreationMode.liveFrame,
+    );
+    addTearDown(state.dispose);
+
+    state.setMode(CreationMode.motionCollage);
+    expect(state.canUseCollage, isTrue);
+    expect(state.duration, 2400);
+    expect(state.endTime, 2400);
+
+    state.setMode(CreationMode.liveFrame);
+    expect(state.duration, asset.durationMs);
+    expect(state.endTime, 6000);
   });
 }

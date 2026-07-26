@@ -6,8 +6,10 @@ import '../models/media_asset.dart';
 import '../services/media_engine.dart';
 import '../theme.dart';
 import '../localization/app_localizations.dart';
+import '../features/motion_canvas/controllers/motion_canvas_controller.dart';
+import '../features/motion_canvas/export/export_service.dart';
+import '../features/motion_canvas/widgets/studio_canvas.dart';
 import 'components/advanced_settings.dart';
-import 'components/collage_layout_selector.dart';
 import 'components/cover_selector.dart';
 import 'components/creation_mode_selector.dart';
 import 'components/generate_button.dart';
@@ -35,6 +37,8 @@ class LiveEditorPage extends StatefulWidget {
 
 class _LiveEditorPageState extends State<LiveEditorPage> {
   late final LiveEditorState _editorState;
+  late final MotionCanvasController _canvas;
+  late final MotionCanvasExportService _canvasExportService;
   int _loadGeneration = 0;
 
   @override
@@ -42,17 +46,45 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
     super.initState();
     _editorState = LiveEditorState(
       asset: widget.assets.first,
-      mode: CreationMode.fromIndex(widget.initialMode),
+      mode: CreationMode.fromIndex(
+        widget.assets.length < 2 ? 0 : widget.initialMode,
+      ),
       assets: widget.assets,
     );
+    _canvas = MotionCanvasController(assets: widget.assets)
+      ..addListener(_refreshCanvas);
+    _canvasExportService = MotionCanvasExportService(widget.engine);
     _loadFrames();
+    _loadCanvasThumbnails();
   }
 
   @override
   void dispose() {
     _loadGeneration++;
     _editorState.dispose();
+    _canvas.removeListener(_refreshCanvas);
+    _canvas.dispose();
     super.dispose();
+  }
+
+  void _refreshCanvas() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _loadCanvasThumbnails() async {
+    for (var index = 0; index < _canvas.clips.length; index++) {
+      final clip = _canvas.clips[index];
+      try {
+        final path = await widget.engine.extractFrame(
+          clip.asset.uri,
+          clip.trimStartMs + clip.durationMs ~/ 2,
+        );
+        if (!mounted) return;
+        _canvas.setThumbnail(index, path);
+      } catch (_) {
+        // A failed rail thumbnail must not block the synchronized preview.
+      }
+    }
   }
 
   Future<void> _loadFrames() async {
@@ -87,6 +119,10 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
   }
 
   Future<void> _generate() async {
+    if (_editorState.mode == CreationMode.motionCollage) {
+      await _generateCollage();
+      return;
+    }
     if (_editorState.selectedCover == null || _editorState.isProcessing) return;
     _editorState.setGenerateStatus(GenerateStatus.processing);
     try {
@@ -105,11 +141,6 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
         loop: _editorState.loopEnabled,
         playbackSpeed: _editorState.playbackSpeed,
         enhancementEnabled: _editorState.enhancementEnabled,
-        collageAssets: _editorState.mode == CreationMode.motionCollage
-            ? widget.assets.take(3).toList(growable: false)
-            : const [],
-        collageLayout: _editorState.collageLayout.index,
-        collageAudioSourceIndex: _editorState.collageAudioSourceIndex,
       );
       if (!mounted) return;
       _editorState.setGenerateStatus(GenerateStatus.success);
@@ -136,6 +167,91 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
     }
   }
 
+  Future<void> _generateCollage() async {
+    if (_canvas.isExporting || !_editorState.canUseCollage) return;
+    _canvas.setExporting(true);
+    try {
+      final result = await _canvasExportService.export(_canvas);
+      if (!mounted) return;
+      await _showSuccess(result.published);
+      if (!mounted) return;
+      Navigator.pop(context, toLiveExport(result.published, result.coverPath));
+    } catch (_) {
+      if (mounted) _message('errorExport');
+    } finally {
+      if (mounted) _canvas.setExporting(false);
+    }
+  }
+
+  Future<void> _editCanvasClip(int index) async {
+    final clip = _canvas.clips[index];
+    var range = RangeValues(
+      clip.trimStartMs.toDouble(),
+      clip.trimEndMs.toDouble(),
+    );
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AfterFrameColors.panel,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(22, 8, 22, 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  context.l10n.text('editCollageClip', {'index': index + 1}),
+                  style: const TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  context.l10n.text('editCollageClipHint'),
+                  style: const TextStyle(color: AfterFrameColors.muted),
+                ),
+                const SizedBox(height: 18),
+                RangeSlider(
+                  values: range,
+                  min: 0,
+                  max: clip.asset.durationMs.toDouble().clamp(
+                    500,
+                    double.infinity,
+                  ),
+                  labels: RangeLabels(
+                    '${(range.start / 1000).toStringAsFixed(1)}s',
+                    '${(range.end / 1000).toStringAsFixed(1)}s',
+                  ),
+                  onChanged: (value) {
+                    if (value.end - value.start < 500) return;
+                    setSheetState(() => range = value);
+                    _canvas.setTrim(
+                      index,
+                      value.start.round(),
+                      value.end.round(),
+                    );
+                  },
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () => Navigator.pop(sheetContext),
+                    child: Text(context.l10n.text('done')),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _showSuccess(
     PublishedLive published,
   ) => showModalBottomSheet<void>(
@@ -144,6 +260,7 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
     showDragHandle: true,
     builder: (sheetContext) {
       final l10n = sheetContext.l10n;
+      final isMotionPhoto = published.format == 'motionPhoto';
       return Padding(
         padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
         child: Column(
@@ -203,21 +320,23 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
                 label: Text(l10n.text('shareToChat')),
               ),
             ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () async {
-                  try {
-                    await widget.engine.shareMotionPhoto(published);
-                  } catch (_) {
-                    if (mounted) _message('errorShare');
-                  }
-                },
-                icon: const Icon(Icons.motion_photos_on_outlined),
-                label: Text(l10n.text('shareMotionOriginal')),
+            if (isMotionPhoto) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    try {
+                      await widget.engine.shareMotionPhoto(published);
+                    } catch (_) {
+                      if (mounted) _message('errorShare');
+                    }
+                  },
+                  icon: const Icon(Icons.motion_photos_on_outlined),
+                  label: Text(l10n.text('shareMotionOriginal')),
+                ),
               ),
-            ),
+            ],
             const SizedBox(height: 10),
             Text(
               l10n.text('shareCompatibilityHint'),
@@ -257,6 +376,8 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
       engine: widget.engine,
       onSourceSelected: _selectSource,
       onGenerate: _generate,
+      canvas: _canvas,
+      onEditCanvasClip: _editCanvasClip,
     ),
   );
 }
@@ -267,18 +388,25 @@ class _LiveEditorScaffold extends StatelessWidget {
     required this.engine,
     required this.onSourceSelected,
     required this.onGenerate,
+    required this.canvas,
+    required this.onEditCanvasClip,
   });
 
   final List<MediaAsset> assets;
   final MediaEngine engine;
   final ValueChanged<int> onSourceSelected;
   final VoidCallback onGenerate;
+  final MotionCanvasController canvas;
+  final ValueChanged<int> onEditCanvasClip;
 
   @override
   Widget build(BuildContext context) {
     final state = LiveEditorScope.of(context);
     final l10n = context.l10n;
-    final canGenerate = state.selectedCover != null && !state.isProcessing;
+    final collageMode = state.mode == CreationMode.motionCollage;
+    final canGenerate = collageMode
+        ? state.canUseCollage && !canvas.isExporting
+        : state.selectedCover != null && !state.isProcessing;
     return Scaffold(
       appBar: AppBar(
         title: Column(
@@ -359,7 +487,19 @@ class _LiveEditorScaffold extends StatelessWidget {
                   CustomScrollView(
                     physics: const BouncingScrollPhysics(),
                     slivers: [
-                      const SliverToBoxAdapter(child: LivePreviewCard()),
+                      SliverToBoxAdapter(
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 280),
+                          child: collageMode
+                              ? StudioCanvasPreview(
+                                  key: const ValueKey('canvasPreview'),
+                                  controller: canvas,
+                                )
+                              : const LivePreviewCard(
+                                  key: ValueKey('singlePreview'),
+                                ),
+                        ),
+                      ),
                       SliverToBoxAdapter(
                         child: ClipRRect(
                           borderRadius: const BorderRadius.vertical(
@@ -387,7 +527,7 @@ class _LiveEditorScaffold extends StatelessWidget {
                               ),
                               child: Column(
                                 children: [
-                                  if (assets.length > 1) ...[
+                                  if (assets.length > 1 && !collageMode) ...[
                                     _Reveal(
                                       child: SourceSelector(
                                         assets: assets,
@@ -412,15 +552,21 @@ class _LiveEditorScaffold extends StatelessWidget {
                                           ? const CoverSelector(
                                               key: ValueKey('cover'),
                                             )
-                                          : const CollageLayoutSelector(
-                                              key: ValueKey('collage'),
+                                          : StudioCanvasTools(
+                                              key: const ValueKey(
+                                                'canvasTools',
+                                              ),
+                                              controller: canvas,
+                                              onEditClip: onEditCanvasClip,
                                             ),
                                     ),
                                   ),
-                                  const SizedBox(height: 30),
-                                  const _Reveal(child: TimelineEditor()),
-                                  const SizedBox(height: 24),
-                                  const _Reveal(child: AdvancedSettings()),
+                                  if (!collageMode) ...[
+                                    const SizedBox(height: 30),
+                                    const _Reveal(child: TimelineEditor()),
+                                    const SizedBox(height: 24),
+                                    const _Reveal(child: AdvancedSettings()),
+                                  ],
                                   const SizedBox(height: 20),
                                   _Reveal(
                                     child: GenerateButton(
