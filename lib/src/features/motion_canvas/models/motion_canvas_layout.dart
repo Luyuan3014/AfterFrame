@@ -1,13 +1,3 @@
-import 'dart:math' as math;
-
-enum MotionTemplate { travelDiary, sunsetStory, filmStrip, minimalMemory }
-
-enum MotionTransition { softBlurBlend, softFade, lightLeak, blur, filmGrain }
-
-enum MotionStyle { cinematic, film, clean, dusk }
-
-enum MotionTool { layout, style, transition, music, export }
-
 enum MotionExportFormat { motionPhoto, mp4 }
 
 enum AdaptiveLayoutKind {
@@ -38,55 +28,11 @@ class AdaptiveCanvasPlan {
 
   final AdaptiveLayoutKind kind;
   final List<CanvasSlot> slots;
-
-  /// Fits every source inside its layout cell without dropping source pixels.
-  /// [focuses] position the intact video in any remaining free space.
-  List<CanvasSlot> fittedContentSlots({
-    required double canvasAspectRatio,
-    required List<double> sourceAspectRatios,
-    required List<({double x, double y})> focuses,
-  }) => [
-    for (var index = 0; index < slots.length; index++)
-      _fitContent(
-        slots[index],
-        canvasAspectRatio,
-        sourceAspectRatios[index],
-        focuses[index],
-      ),
-  ];
-
-  static CanvasSlot _fitContent(
-    CanvasSlot cell,
-    double canvasAspectRatio,
-    double sourceAspectRatio,
-    ({double x, double y}) focus,
-  ) {
-    final safeAspect = sourceAspectRatio.isFinite && sourceAspectRatio > 0
-        ? sourceAspectRatio
-        : 9 / 16;
-    final heightAtFullWidth = cell.width * canvasAspectRatio / safeAspect;
-    if (heightAtFullWidth <= cell.height) {
-      final freeY = cell.height - heightAtFullWidth;
-      return CanvasSlot(
-        cell.x,
-        cell.y + freeY * focus.y.clamp(0, 1),
-        cell.width,
-        heightAtFullWidth,
-      );
-    }
-    final widthAtFullHeight = cell.height * safeAspect / canvasAspectRatio;
-    final freeX = cell.width - widthAtFullHeight;
-    return CanvasSlot(
-      cell.x + freeX * focus.x.clamp(0, 1),
-      cell.y,
-      widthAtFullHeight,
-      cell.height,
-    );
-  }
 }
 
-/// Chooses the arrangement with the largest no-crop occupied area for the
-/// imported media. The output canvas is always portrait 9:16.
+/// Chooses a full-bleed arrangement with the least destructive cover crop.
+/// Every plan fills the portrait 9:16 output; preview and Media3 export share
+/// these exact normalized cells.
 class MotionCanvasLayout {
   const MotionCanvasLayout({
     this.canvasWidth = 1080,
@@ -120,8 +66,7 @@ class MotionCanvasLayout {
     final candidates = ratios.length == 2 ? _twoUp() : _threeUp();
     return candidates.reduce(
       (best, next) =>
-          _unusedAreaCost(ratios, next.slots) <
-              _unusedAreaCost(ratios, best.slots)
+          _cropCost(ratios, next.slots) < _cropCost(ratios, best.slots)
           ? next
           : best,
     );
@@ -191,34 +136,15 @@ class MotionCanvasLayout {
     ];
   }
 
-  double _unusedAreaCost(List<double> sources, List<CanvasSlot> slots) {
+  double _cropCost(List<double> sources, List<CanvasSlot> slots) {
     var cost = 0.0;
     for (var index = 0; index < sources.length; index++) {
       final source = sources[index];
       final target = aspectRatio * slots[index].aspectRatio;
-      final occupied = math.min(source / target, target / source).clamp(0, 1);
       final area = slots[index].width * slots[index].height;
-      cost += (1 - occupied) * math.sqrt(area);
+      final retained = source < target ? source / target : target / source;
+      cost += (1 - retained.clamp(0, 1)) * area;
     }
     return cost;
   }
-}
-
-extension MotionTemplateCopy on MotionTemplate {
-  String title(bool zh) => switch (this) {
-    MotionTemplate.travelDiary => zh ? '旅行日记' : 'Travel Diary',
-    MotionTemplate.sunsetStory => zh ? '落日故事' : 'Sunset Story',
-    MotionTemplate.filmStrip => zh ? '胶片叙事' : 'Film Strip',
-    MotionTemplate.minimalMemory => zh ? '极简记忆' : 'Minimal Memory',
-  };
-
-  String subtitle(bool zh) => switch (this) {
-    MotionTemplate.travelDiary =>
-      zh ? '景色 · 人物 · 细节' : 'Place · People · Detail',
-    MotionTemplate.sunsetStory =>
-      zh ? '光线 · 环境 · 剪影' : 'Light · Place · Silhouette',
-    MotionTemplate.filmStrip => zh ? '颗粒 · 暖调 · 连续' : 'Grain · Warmth · Rhythm',
-    MotionTemplate.minimalMemory =>
-      zh ? '留白 · 呼吸 · 克制' : 'Space · Breath · Restraint',
-  };
 }

@@ -40,17 +40,21 @@ void main() {
     expect(controller.positionMs, 4600);
   });
 
-  test('template produces subject-aware focus and remains editable', () {
+  test('collage uses the same advanced settings model as Live frame', () {
     final controller = MotionCanvasController(
       assets: const [landscape, portrait, square],
     );
     addTearDown(controller.dispose);
 
-    controller.applyTemplate(MotionTemplate.sunsetStory);
+    controller.toggleAudio();
+    controller.toggleLoop();
+    controller.toggleEnhancement();
+    controller.setPlaybackSpeed(1.5);
 
-    expect(controller.clips.first.focus.y, lessThan(.4));
-    expect(controller.style, MotionStyle.dusk);
-    expect(controller.transition, MotionTransition.softBlurBlend);
+    expect(controller.audioEnabled, isFalse);
+    expect(controller.loopEnabled, isFalse);
+    expect(controller.enhancementEnabled, isTrue);
+    expect(controller.playbackSpeed, 1.5);
   });
 
   test('clip order and independent trims are preserved', () {
@@ -68,7 +72,7 @@ void main() {
   });
 
   test(
-    'adaptive layout maximizes no-crop occupancy of the portrait canvas',
+    'adaptive layout minimizes cover crop and fills the portrait canvas',
     () {
       const layout = MotionCanvasLayout();
       final widePlan = layout.planFor(const [16 / 9, 16 / 9]);
@@ -84,7 +88,7 @@ void main() {
     },
   );
 
-  test('two landscape clips fill width and preserve every source pixel', () {
+  test('two landscape clips use full-width stacked cells', () {
     final controller = MotionCanvasController(
       assets: const [landscape, landscape],
     );
@@ -93,27 +97,26 @@ void main() {
     expect(controller.canvasPlan.kind, AdaptiveLayoutKind.splitHorizontal);
     for (final slot in controller.contentSlots) {
       expect(slot.width, 1);
-      final physicalAspect =
-          slot.width *
-          controller.layout.canvasWidth /
-          (slot.height * controller.layout.canvasHeight);
-      expect(physicalAspect, closeTo(landscape.aspectRatio, .0001));
+      expect(slot.height, closeTo(.496, .001));
     }
   });
 
-  test('manual positioning keeps aspect ratio and can be reset', () {
-    final controller = MotionCanvasController(assets: const [landscape]);
+  test('render slots cover the complete canvas without outer gutters', () {
+    final controller = MotionCanvasController(
+      assets: const [landscape, portrait, square],
+    );
     addTearDown(controller.dispose);
-    final centered = controller.contentSlots.single;
 
-    controller.moveClipFocus(0, -.8, .9);
-    expect(controller.activeClip.focus.x, 0);
-    expect(controller.activeClip.focus.y, 1);
-    final moved = controller.contentSlots.single;
-    expect(moved.y, greaterThan(centered.y));
-    expect(moved.aspectRatio, closeTo(centered.aspectRatio, .0001));
-    controller.resetClipFocus(0);
-    expect(controller.activeClip.focus.x, .5);
-    expect(controller.activeClip.focus.y, .5);
+    final slots = controller.contentSlots;
+    expect(slots, hasLength(3));
+    expect(slots.any((slot) => slot.x == 0 && slot.y == 0), isTrue);
+    expect(
+      slots.any(
+        (slot) =>
+            (slot.x + slot.width - 1).abs() < .001 ||
+            (slot.y + slot.height - 1).abs() < .001,
+      ),
+      isTrue,
+    );
   });
 }

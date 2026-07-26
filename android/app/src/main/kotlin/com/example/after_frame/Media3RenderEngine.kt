@@ -195,7 +195,7 @@ class Media3RenderEngine(
             effects += Presentation.createForWidthAndHeight(
                 slot.width,
                 slot.height,
-                Presentation.LAYOUT_SCALE_TO_FIT,
+                Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP,
             )
         } else {
             effects += Presentation.createForShortSide(1080)

@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import '../../../models/media_asset.dart';
 import '../models/motion_canvas_layout.dart';
 import '../models/motion_clip.dart';
-import '../renderer/video_crop_engine.dart';
 
 class MotionCanvasController extends ChangeNotifier {
   MotionCanvasController({required List<MediaAsset> assets})
@@ -19,41 +18,28 @@ class MotionCanvasController extends ChangeNotifier {
           focus: const CropFocus(),
           subject: SubjectKind.landscape,
         );
-      }) {
-    applyTemplate(MotionTemplate.travelDiary, notify: false);
-  }
+      });
 
   static const motion = Duration(milliseconds: 320);
   static const curve = Curves.easeInOutCubic;
 
-  final VideoCropEngine cropEngine = const VideoCropEngine();
   final MotionCanvasLayout layout = const MotionCanvasLayout();
   List<MotionClip> clips;
-  MotionTemplate template = MotionTemplate.travelDiary;
-  MotionTransition transition = MotionTransition.softBlurBlend;
-  MotionStyle style = MotionStyle.cinematic;
-  MotionTool activeTool = MotionTool.layout;
   MotionExportFormat exportFormat = MotionExportFormat.motionPhoto;
   int activeClipIndex = 0;
   int positionMs = 0;
   bool isPlaying = false;
   bool isExporting = false;
-  bool musicEnabled = true;
-  bool isImmersivePreview = false;
+  bool audioEnabled = true;
+  bool loopEnabled = true;
+  bool enhancementEnabled = false;
+  double playbackSpeed = 1;
 
   AdaptiveCanvasPlan get canvasPlan => layout.planFor(
     clips.map((clip) => clip.asset.aspectRatio).toList(growable: false),
   );
 
-  List<CanvasSlot> get contentSlots => canvasPlan.fittedContentSlots(
-    canvasAspectRatio: layout.aspectRatio,
-    sourceAspectRatios: clips
-        .map((clip) => clip.asset.aspectRatio)
-        .toList(growable: false),
-    focuses: clips
-        .map((clip) => (x: clip.focus.x, y: clip.focus.y))
-        .toList(growable: false),
-  );
+  List<CanvasSlot> get contentSlots => canvasPlan.slots;
 
   int get durationMs => clips
       .map((clip) => clip.durationMs)
@@ -62,53 +48,8 @@ class MotionCanvasController extends ChangeNotifier {
 
   MotionClip get activeClip => clips[activeClipIndex];
 
-  void applyTemplate(MotionTemplate value, {bool notify = true}) {
-    template = value;
-    style = switch (value) {
-      MotionTemplate.travelDiary => MotionStyle.cinematic,
-      MotionTemplate.sunsetStory => MotionStyle.dusk,
-      MotionTemplate.filmStrip => MotionStyle.film,
-      MotionTemplate.minimalMemory => MotionStyle.clean,
-    };
-    clips = [
-      for (var i = 0; i < clips.length; i++)
-        clips[i].copyWith(focus: cropEngine.estimateFocus(clips[i], value, i)),
-    ];
-    if (notify) notifyListeners();
-  }
-
-  void createMemory() {
-    transition = MotionTransition.softBlurBlend;
-    applyTemplate(template);
-  }
-
   void selectClip(int index) {
     activeClipIndex = index.clamp(0, clips.length - 1);
-    notifyListeners();
-  }
-
-  void moveClipFocus(int index, double deltaX, double deltaY) {
-    final focus = clips[index].focus;
-    clips[index] = clips[index].copyWith(
-      focus: focus.copyWith(
-        x: (focus.x + deltaX).clamp(0, 1),
-        y: (focus.y + deltaY).clamp(0, 1),
-        confidence: 1,
-      ),
-    );
-    activeClipIndex = index;
-    notifyListeners();
-  }
-
-  void resetClipFocus(int index) {
-    clips[index] = clips[index].copyWith(focus: const CropFocus());
-    activeClipIndex = index;
-    notifyListeners();
-  }
-
-  void setImmersivePreview(bool value) {
-    if (isImmersivePreview == value) return;
-    isImmersivePreview = value;
     notifyListeners();
   }
 
@@ -149,28 +90,29 @@ class MotionCanvasController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void selectTool(MotionTool value) {
-    activeTool = value;
-    notifyListeners();
-  }
-
-  void setTransition(MotionTransition value) {
-    transition = value;
-    notifyListeners();
-  }
-
-  void setStyle(MotionStyle value) {
-    style = value;
-    notifyListeners();
-  }
-
   void setExportFormat(MotionExportFormat value) {
     exportFormat = value;
     notifyListeners();
   }
 
-  void toggleMusic() {
-    musicEnabled = !musicEnabled;
+  void toggleAudio() {
+    audioEnabled = !audioEnabled;
+    notifyListeners();
+  }
+
+  void toggleLoop() {
+    loopEnabled = !loopEnabled;
+    notifyListeners();
+  }
+
+  void toggleEnhancement() {
+    enhancementEnabled = !enhancementEnabled;
+    notifyListeners();
+  }
+
+  void setPlaybackSpeed(double value) {
+    if (playbackSpeed == value) return;
+    playbackSpeed = value.clamp(.5, 2);
     notifyListeners();
   }
 

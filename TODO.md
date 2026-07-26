@@ -25,20 +25,20 @@
 ## 已完成
 
 - [x] 首页合并 Live 单帧/Live 拼图入口，统一有序选择 1～3 段素材并进入 AfterFrame Studio。
-- [x] 在 Studio 内完成模式切换，将 Motion Canvas 的同步预览、逐段裁剪、排序和创意工具统一到单帧视觉语言。
+- [x] 在 Studio 内完成模式切换；Live 拼图彻底删除布局、风格、转场、音乐工具，统一为单帧的预览、封面、时间轴、更多设置和生成层级。
 - [x] 移除 FFmpegKit、FFprobe、native ABI 打包规则和运行时测试。
 - [x] 使用 Media3 1.10.1 Transformer 输出 H.264/AAC MP4。
 - [x] 使用 Composition + VideoCompositorSettings 实现最多三路同步 Live 拼图。
-- [x] 保留每路独立裁切、焦点裁剪、统一变速和指定主音轨。
-- [x] 按素材比例自适应选择分栏，默认完整展示、不隐式裁剪，支持在留白内拖动，并将完整素材矩形无损传给 Media3 合成器。
-- [x] 工具面板下滑进入沉浸式 Live 拼图预览，上滑返回编辑。
+- [x] 保留每路独立裁切、统一变速和第一路主音轨；声音、循环、增强和变速交互与 Live 单帧一致。
+- [x] 按素材比例自动选择裁切损失最小的满版分栏；Flutter `BoxFit.cover` 与 Media3 `LAYOUT_SCALE_TO_FIT_WITH_CROP` 共用槽位并禁止拉伸。
+- [x] Live 单帧和 Live 拼图均支持全屏预览，覆盖沉浸式系统栏、显式关闭、返回键、下滑退出和系统 UI 恢复。
 - [x] 保留标准 Android Motion Photo 封装和聊天兼容 MP4 分享。
 - [x] 将导出格式聚焦为 Motion Photo 与 MP4。
 
 ## 下一步
 
 - [ ] 用 Media3 CompositionPlayer 统一多路预览与导出 Composition，减少预览/成片偏差。
-- [ ] 为 Soft Fade、Film Grain 和动态漏光实现自定义 GL effect，并建立逐帧视觉回归。
+- [ ] 若未来重新确认复杂转场为产品需求，再独立评估自定义 GL effect；当前 Studio 不展示转场入口。
 - [ ] 增加真实视频 fixture 的 Media3 instrumentation export 测试。
 - [ ] 增加导出进度事件、后台恢复和系统资源不足提示。
 - [ ] 明确 HDR 保留与 SDR tone mapping 产品策略。

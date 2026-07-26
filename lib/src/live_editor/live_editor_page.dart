@@ -13,6 +13,7 @@ import 'components/advanced_settings.dart';
 import 'components/cover_selector.dart';
 import 'components/creation_mode_selector.dart';
 import 'components/generate_button.dart';
+import 'components/fullscreen_preview.dart';
 import 'components/live_preview_card.dart';
 import 'components/source_selector.dart';
 import 'components/timeline_editor.dart';
@@ -382,7 +383,7 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
   );
 }
 
-class _LiveEditorScaffold extends StatelessWidget {
+class _LiveEditorScaffold extends StatefulWidget {
   const _LiveEditorScaffold({
     required this.assets,
     required this.engine,
@@ -400,12 +401,42 @@ class _LiveEditorScaffold extends StatelessWidget {
   final ValueChanged<int> onEditCanvasClip;
 
   @override
+  State<_LiveEditorScaffold> createState() => _LiveEditorScaffoldState();
+}
+
+class _LiveEditorScaffoldState extends State<_LiveEditorScaffold> {
+  bool _previewRouteOpen = false;
+
+  Future<void> _openFullscreen(bool collageMode) async {
+    if (_previewRouteOpen) return;
+    final editorState = LiveEditorScope.of(context);
+    setState(() => _previewRouteOpen = true);
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
+    try {
+      await FullscreenPreview.show(
+        context,
+        label: collageMode ? 'Live Collage' : 'Live Frame',
+        exitHint: context.l10n.text('fullscreenExitHint'),
+        child: collageMode
+            ? StudioCanvasPreview(controller: widget.canvas, fullscreen: true)
+            : LiveEditorScope(
+                state: editorState,
+                child: const LivePreviewCard(fullscreen: true),
+              ),
+      );
+    } finally {
+      if (mounted) setState(() => _previewRouteOpen = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final state = LiveEditorScope.of(context);
     final l10n = context.l10n;
     final collageMode = state.mode == CreationMode.motionCollage;
     final canGenerate = collageMode
-        ? state.canUseCollage && !canvas.isExporting
+        ? state.canUseCollage && !widget.canvas.isExporting
         : state.selectedCover != null && !state.isProcessing;
     return Scaffold(
       appBar: AppBar(
@@ -431,7 +462,7 @@ class _LiveEditorScaffold extends StatelessWidget {
         ),
         actions: [
           TextButton(
-            onPressed: canGenerate ? onGenerate : null,
+            onPressed: canGenerate ? widget.onGenerate : null,
             child: Text(
               l10n.text('export'),
               style: const TextStyle(
@@ -493,10 +524,14 @@ class _LiveEditorScaffold extends StatelessWidget {
                           child: collageMode
                               ? StudioCanvasPreview(
                                   key: const ValueKey('canvasPreview'),
-                                  controller: canvas,
+                                  controller: widget.canvas,
+                                  active: !_previewRouteOpen,
+                                  onFullscreen: () => _openFullscreen(true),
                                 )
-                              : const LivePreviewCard(
-                                  key: ValueKey('singlePreview'),
+                              : LivePreviewCard(
+                                  key: const ValueKey('singlePreview'),
+                                  active: !_previewRouteOpen,
+                                  onFullscreen: () => _openFullscreen(false),
                                 ),
                         ),
                       ),
@@ -527,12 +562,13 @@ class _LiveEditorScaffold extends StatelessWidget {
                               ),
                               child: Column(
                                 children: [
-                                  if (assets.length > 1 && !collageMode) ...[
+                                  if (widget.assets.length > 1 &&
+                                      !collageMode) ...[
                                     _Reveal(
                                       child: SourceSelector(
-                                        assets: assets,
-                                        engine: engine,
-                                        onSelected: onSourceSelected,
+                                        assets: widget.assets,
+                                        engine: widget.engine,
+                                        onSelected: widget.onSourceSelected,
                                       ),
                                     ),
                                     const SizedBox(height: 22),
@@ -556,8 +592,9 @@ class _LiveEditorScaffold extends StatelessWidget {
                                               key: const ValueKey(
                                                 'canvasTools',
                                               ),
-                                              controller: canvas,
-                                              onEditClip: onEditCanvasClip,
+                                              controller: widget.canvas,
+                                              onEditClip:
+                                                  widget.onEditCanvasClip,
                                             ),
                                     ),
                                   ),
@@ -571,7 +608,7 @@ class _LiveEditorScaffold extends StatelessWidget {
                                   _Reveal(
                                     child: GenerateButton(
                                       onPressed: canGenerate
-                                          ? onGenerate
+                                          ? widget.onGenerate
                                           : null,
                                     ),
                                   ),

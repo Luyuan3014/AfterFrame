@@ -11,7 +11,16 @@ import '../live_editor_scope.dart';
 import '../models/live_editor_state.dart';
 
 class LivePreviewCard extends StatefulWidget {
-  const LivePreviewCard({super.key});
+  const LivePreviewCard({
+    super.key,
+    this.fullscreen = false,
+    this.active = true,
+    this.onFullscreen,
+  });
+
+  final bool fullscreen;
+  final bool active;
+  final VoidCallback? onFullscreen;
 
   @override
   State<LivePreviewCard> createState() => _LivePreviewCardState();
@@ -38,6 +47,14 @@ class _LivePreviewCardState extends State<LivePreviewCard>
   double? _lastSpeed;
   LiveEditorState? _editorState;
   bool? _reduceMotion;
+
+  @override
+  void didUpdateWidget(covariant LivePreviewCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.active && !widget.active) {
+      unawaited(_controller?.pause());
+    }
+  }
 
   @override
   void didChangeDependencies() {
@@ -210,10 +227,16 @@ class _LivePreviewCardState extends State<LivePreviewCard>
     final playing = ready && controller!.value.isPlaying;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+      padding: widget.fullscreen
+          ? const EdgeInsets.symmetric(horizontal: 8)
+          : const EdgeInsets.fromLTRB(20, 8, 20, 24),
       child: Center(
         child: Container(
-          constraints: const BoxConstraints(maxHeight: 430),
+          constraints: BoxConstraints(
+            maxHeight: widget.fullscreen
+                ? MediaQuery.sizeOf(context).height
+                : 430,
+          ),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(32),
             boxShadow: const [
@@ -254,9 +277,23 @@ class _LivePreviewCardState extends State<LivePreviewCard>
                     top: 16,
                     child: _LiveBadge(animation: _breath),
                   ),
+                  if (!widget.fullscreen && widget.onFullscreen != null)
+                    Positioned(
+                      right: 12,
+                      top: 12,
+                      child: IconButton.filled(
+                        tooltip: '全屏预览',
+                        onPressed: widget.onFullscreen,
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.black45,
+                          foregroundColor: Colors.white,
+                        ),
+                        icon: const Icon(Icons.open_in_full_rounded, size: 18),
+                      ),
+                    ),
                   Center(
                     child: _PreviewButton(
-                      ready: ready,
+                      ready: ready && widget.active,
                       playing: playing,
                       loading: _initializing,
                       failed: _previewError != null,

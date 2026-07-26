@@ -22,21 +22,20 @@ class MotionCanvasExportService {
       endMs: first.trimEndMs,
       coverMs: coverMs,
       coverPath: coverPath,
-      keepAudio: canvas.musicEnabled,
-      loop: true,
-      enhancementEnabled: canvas.style.index != 2,
+      keepAudio: canvas.audioEnabled,
+      loop: canvas.loopEnabled,
+      playbackSpeed: canvas.playbackSpeed,
+      enhancementEnabled: canvas.enhancementEnabled,
       collageAssets: canvas.clips
           .map((clip) => clip.asset)
           .toList(growable: false),
-      collageLayout: canvas.template.index,
+      collageLayout: 0,
       collageAudioSourceIndex: 0,
       collageStartMs: canvas.clips.map((clip) => clip.trimStartMs).toList(),
       collageEndMs: canvas.clips
           .map((clip) => clip.trimStartMs + canvas.durationMs)
           .toList(),
-      motionTransition: canvas.transition.index,
-      cropFocusX: canvas.clips.map((clip) => clip.focus.x).toList(),
-      cropFocusY: canvas.clips.map((clip) => clip.focus.y).toList(),
+      motionTransition: 0,
       collageRects: canvas.contentSlots
           .map((slot) => slot.encoded)
           .toList(growable: false),
