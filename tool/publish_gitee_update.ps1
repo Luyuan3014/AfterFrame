@@ -69,14 +69,19 @@ foreach ($fileName in $metadataFiles) {
     Copy-Item -LiteralPath (Join-Path $bundleRoot $fileName) -Destination (Join-Path $checkout $fileName) -Force
 }
 Copy-Item -LiteralPath (Join-Path $projectRoot "docs/gitee-update-repository.README.md") -Destination (Join-Path $checkout "README.md") -Force
+# APKs live on Gitee Release attachments, not in the Git tree. Only remove
+# legacy repository APKs if a previous publish still left them tracked.
 foreach ($fileName in $repositoryApkFiles) {
     $repositoryApk = Join-Path $checkout $fileName
     if (Test-Path -LiteralPath $repositoryApk -PathType Leaf) {
-        Remove-Item -LiteralPath $repositoryApk -Force
+        git -C $checkout rm -f -- $fileName
+        if ($LASTEXITCODE -ne 0) { throw "Unable to remove legacy repository APK: $fileName" }
     }
 }
 
-git -C $checkout add --all -- README.md @metadataFiles @repositoryApkFiles
+# Stage only root metadata. Do not pathspec the APK names when they are absent —
+# `git add` fails with "pathspec did not match any files" on a clean Release-only repo.
+git -C $checkout add -- README.md @metadataFiles
 if ($LASTEXITCODE -ne 0) { throw "Unable to stage the update bundle" }
 git -C $checkout diff --cached --check
 if ($LASTEXITCODE -ne 0) { throw "The staged update bundle failed Git checks" }

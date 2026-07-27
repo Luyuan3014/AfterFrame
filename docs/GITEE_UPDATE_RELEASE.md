@@ -75,8 +75,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tool\publish_gitee_upd
 1. 先提升 `pubspec.yaml`，例如从 `0.7.1+8` 改为 `0.7.2+9`。`+` 后面的 build number 必须递增。
 2. 使用原始分 ABI release 命令构建 APK：`flutter build apk --release --split-per-abi`。
 3. 创建对应 Gitee Release，上传三个 APK 附件。
-4. 用公开 API 读取 ReleaseId：`powershell
-$releaseId = (Invoke-RestMethod https://gitee.com/api/v5/repos/luyuan567/after_frame_update/releases/latest).id`
+4. 用公开 API 读取 ReleaseId：`$releaseId = (Invoke-RestMethod https://gitee.com/api/v5/repos/luyuan567/after_frame_update/releases/latest).id`
 ，再带 `-ReleaseId` 运行 `prepare_gitee_update.ps1`：`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tool\prepare_gitee_update.ps1 -ReleaseId $releaseId -Notes "修复 Gitee 更新检查与下载"`。脚本会验证三个 APK、Release 附件以及真实 versionCode，再生成 SHA-1 与无 BOM 清单。
 5. 运行不带 `-Push` 的 `publish_gitee_update.ps1` 预演：`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tool\publish_gitee_update.ps1 -BundleDirectory build/app/outputs/flutter-apk/gitee-update-0.7.2`。
 6. 确认后带 `-Push` 原子更新清单和 SHA-1：`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tool\publish_gitee_update.ps1 -BundleDirectory build/app/outputs/flutter-apk/gitee-update-0.7.2 -Push`。
