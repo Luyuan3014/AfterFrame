@@ -29,6 +29,8 @@ class CanvasSourceGeometry {
   final double focusX;
   final double focusY;
   final double subjectConfidence;
+
+  double get aspectRatio => width / height;
 }
 
 class CanvasPixelSize {
@@ -121,44 +123,32 @@ class AdaptiveCanvasPlan {
   final List<CanvasFrame> frames;
 }
 
-class _NormalizedFrame {
-  const _NormalizedFrame(this.x, this.y, this.width, this.height);
-
-  final double x;
-  final double y;
-  final double width;
-  final double height;
-}
-
-class _Candidate {
-  const _Candidate(this.kind, this.frames, [this.aestheticPenalty = 0]);
-
-  final AdaptiveLayoutKind kind;
-  final List<_NormalizedFrame> frames;
-  final double aestheticPenalty;
-}
-
-/// Canvas First layout planner.
+/// Content-first layout planner.
 ///
-/// It starts with the requested canvas ratio, chooses an editorial frame
-/// arrangement, and reduces the *canvas* dimensions when a frame would exceed
-/// a source. A frame then takes an equally-sized source crop. Consequently the
-/// invariant is exact: one source pixel maps to one output-canvas pixel before
-/// the completed canvas is scaled for an on-screen preview.
+/// Frames keep each source's aspect ratio and prefer the full source window so
+/// Studio never silently reframes footage. Canvas size is derived from the
+/// arranged frames — never forced to 9:16. Only when the arrangement exceeds
+/// [maxExportSide] does the planner uniformly shrink (same-aspect extract).
 class MotionCanvasLayout {
   const MotionCanvasLayout({
-    this.targetCanvasWidth = 1080,
-    this.targetCanvasHeight = 1920,
+    this.maxExportSide = 4320,
     this.cornerRadius = 22,
-    this.gapPixels = 4,
+    // Fixed opaque gutter between panels. Media3's compositor alpha-blends
+    // abutting video quads and picks secondary frames by nearest timestamp —
+    // that makes a content seam shimmer. A static solid bar in this gutter
+    // (painted after compose) is stable in both Studio and the exported Live.
+    this.gapPixels = 2,
+    this.seamOverlapPixels = 0,
   });
 
-  final int targetCanvasWidth;
-  final int targetCanvasHeight;
+  /// Upper bound for either canvas side. Kept in sync with Media3RenderEngine.
+  final int maxExportSide;
   final double cornerRadius;
   final int gapPixels;
 
-  double get aspectRatio => targetCanvasWidth / targetCanvasHeight;
+  /// Kept for API stability; must stay 0 so panels never alpha-blend into each
+  /// other. The export path fills [gapPixels] with an opaque bitmap overlay.
+  final int seamOverlapPixels;
 
   AdaptiveCanvasPlan planFor(List<CanvasSourceGeometry> sources) {
     final safeSources = sources
@@ -168,14 +158,13 @@ class MotionCanvasLayout {
     if (safeSources.isEmpty) {
       safeSources.add(const CanvasSourceGeometry(width: 1080, height: 1920));
     }
-    final candidates = _candidates(safeSources.length);
+    final candidates = _candidates(safeSources);
     AdaptiveCanvasPlan? best;
     var bestScore = double.infinity;
     for (final candidate in candidates) {
-      final plan = _materialize(candidate, safeSources);
-      final score = _score(candidate, plan);
+      final score = _score(candidate);
       if (score < bestScore) {
-        best = plan;
+        best = candidate;
         bestScore = score;
       }
     }
@@ -193,89 +182,193 @@ class MotionCanvasLayout {
             : 0,
       );
 
-  List<_Candidate> _candidates(int count) {
-    if (count == 1) {
-      return const [
-        _Candidate(AdaptiveLayoutKind.single, [_NormalizedFrame(0, 0, 1, 1)]),
-      ];
+  List<AdaptiveCanvasPlan> _candidates(List<CanvasSourceGeometry> sources) {
+    if (sources.length == 1) {
+      return [_fitPlan(_materializeSingle(sources.first))];
     }
-    final gx = gapPixels / targetCanvasWidth;
-    final gy = gapPixels / targetCanvasHeight;
-    if (count == 2) {
-      return [
-        _Candidate(AdaptiveLayoutKind.verticalTimeFlow, [
-          _NormalizedFrame(0, 0, 1, .5 - gy / 2),
-          _NormalizedFrame(0, .5 + gy / 2, 1, .5 - gy / 2),
-        ]),
-        _Candidate(AdaptiveLayoutKind.horizontalTimeFlow, [
-          _NormalizedFrame(0, 0, .5 - gx / 2, 1),
-          _NormalizedFrame(.5 + gx / 2, 0, .5 - gx / 2, 1),
-        ]),
-      ];
-    }
-    return [
-      _Candidate(AdaptiveLayoutKind.verticalTimeFlow, [
-        _NormalizedFrame(0, 0, 1, 1 / 3 - gy * 2 / 3),
-        _NormalizedFrame(0, 1 / 3 + gy / 3, 1, 1 / 3 - gy * 2 / 3),
-        _NormalizedFrame(0, 2 / 3 + gy * 2 / 3, 1, 1 / 3 - gy * 2 / 3),
-      ]),
-      _Candidate(AdaptiveLayoutKind.horizontalTimeFlow, [
-        _NormalizedFrame(0, 0, 1 / 3 - gx * 2 / 3, 1),
-        _NormalizedFrame(1 / 3 + gx / 3, 0, 1 / 3 - gx * 2 / 3, 1),
-        _NormalizedFrame(2 / 3 + gx * 2 / 3, 0, 1 / 3 - gx * 2 / 3, 1),
-      ]),
-      _Candidate(AdaptiveLayoutKind.pinterest, [
-        _NormalizedFrame(0, 0, .62 - gx / 2, 1),
-        _NormalizedFrame(.62 + gx / 2, 0, .38 - gx / 2, .5 - gy / 2),
-        _NormalizedFrame(.62 + gx / 2, .5 + gy / 2, .38 - gx / 2, .5 - gy / 2),
-      ], .012),
-      _Candidate(AdaptiveLayoutKind.grid, [
-        _NormalizedFrame(0, 0, .5 - gx / 2, .5 - gy / 2),
-        _NormalizedFrame(.5 + gx / 2, 0, .5 - gx / 2, .5 - gy / 2),
-        _NormalizedFrame(0, .5 + gy / 2, 1, .5 - gy / 2),
-      ], .008),
+    final plans = <AdaptiveCanvasPlan>[
+      _fitPlan(_materializeStack(sources, vertical: true)),
+      _fitPlan(_materializeStack(sources, vertical: false)),
     ];
+    if (sources.length == 3) {
+      plans.add(_fitPlan(_materializeGrid(sources)));
+    }
+    return plans;
   }
 
-  AdaptiveCanvasPlan _materialize(
-    _Candidate candidate,
-    List<CanvasSourceGeometry> sources,
-  ) {
-    var canvasScale = 1.0;
-    for (var index = 0; index < sources.length; index++) {
-      final frame = candidate.frames[index];
-      final source = sources[index];
-      canvasScale = math.min(
-        canvasScale,
-        math.min(
-          source.width / (targetCanvasWidth * frame.width),
-          source.height / (targetCanvasHeight * frame.height),
-        ),
+  AdaptiveCanvasPlan _materializeSingle(CanvasSourceGeometry source) =>
+      AdaptiveCanvasPlan(
+        kind: AdaptiveLayoutKind.single,
+        canvas: CanvasPixelSize(source.width, source.height),
+        frames: [
+          _frameFor(
+            source: source,
+            left: 0,
+            top: 0,
+            width: source.width,
+            height: source.height,
+          ),
+        ],
+      );
+
+  /// Stack full sources. Shared axis uses the max so every clip keeps its
+  /// native pixels; narrower/shorter clips are centered (tiny gutters beat crop).
+  ///
+  /// Consecutive frames overlap by [seamOverlapPixels] so Media3's compositor
+  /// never leaves a clear-color hairline that H.264 makes shimmer.
+  AdaptiveCanvasPlan _materializeStack(
+    List<CanvasSourceGeometry> sources, {
+    required bool vertical,
+  }) {
+    final stepGap = gapPixels - seamOverlapPixels;
+    final n = sources.length;
+    final frames = <CanvasFrame>[];
+
+    if (vertical) {
+      final canvasWidth = _even(
+        sources.map((source) => source.width).reduce(math.max),
+      );
+      var y = 0;
+      for (var index = 0; index < n; index++) {
+        final source = sources[index];
+        final width = source.width <= canvasWidth
+            ? _even(source.width)
+            : canvasWidth;
+        final height = source.width <= canvasWidth
+            ? _even(source.height)
+            : _even(
+                math.min(
+                  source.height,
+                  (width * source.height / source.width).round(),
+                ),
+              );
+        final left = _even(((canvasWidth - width) / 2).round());
+        frames.add(
+          _frameFor(
+            source: source,
+            left: left,
+            top: y,
+            width: width,
+            height: height,
+          ),
+        );
+        y += height + (index == n - 1 ? 0 : stepGap);
+      }
+      return AdaptiveCanvasPlan(
+        kind: AdaptiveLayoutKind.verticalTimeFlow,
+        canvas: CanvasPixelSize(canvasWidth, y),
+        frames: frames,
       );
     }
-    final canvas = CanvasPixelSize(
-      _even(math.max(2, (targetCanvasWidth * canvasScale).floor())),
-      _even(math.max(2, (targetCanvasHeight * canvasScale).floor())),
+
+    final canvasHeight = _even(
+      sources.map((source) => source.height).reduce(math.max),
     );
-    final frames = <CanvasFrame>[];
-    for (var index = 0; index < sources.length; index++) {
-      final normalized = candidate.frames[index];
+    var x = 0;
+    for (var index = 0; index < n; index++) {
       final source = sources[index];
-      final left = normalized.x == 0
-          ? 0
-          : _even((normalized.x * canvas.width).round());
-      final top = normalized.y == 0
-          ? 0
-          : _even((normalized.y * canvas.height).round());
+      final height = source.height <= canvasHeight
+          ? _even(source.height)
+          : canvasHeight;
+      final width = source.height <= canvasHeight
+          ? _even(source.width)
+          : _even(
+              math.min(
+                source.width,
+                (height * source.width / source.height).round(),
+              ),
+            );
+      final top = _even(((canvasHeight - height) / 2).round());
+      frames.add(
+        _frameFor(
+          source: source,
+          left: x,
+          top: top,
+          width: width,
+          height: height,
+        ),
+      );
+      x += width + (index == n - 1 ? 0 : stepGap);
+    }
+    return AdaptiveCanvasPlan(
+      kind: AdaptiveLayoutKind.horizontalTimeFlow,
+      canvas: CanvasPixelSize(x, canvasHeight),
+      frames: frames,
+    );
+  }
+
+  /// Two-over-one using native source pixels; empty strips are allowed when
+  /// aspect ratios differ so framing stays intact.
+  AdaptiveCanvasPlan _materializeGrid(List<CanvasSourceGeometry> sources) {
+    assert(sources.length == 3);
+    final stepGap = gapPixels - seamOverlapPixels;
+    final a = sources[0];
+    final b = sources[1];
+    final c = sources[2];
+    final topHeight = math.max(a.height, b.height);
+    final pairGap = math.max(stepGap, 0);
+    final topWidth = a.width + pairGap + b.width;
+    final canvasWidth = math.max(topWidth, c.width);
+    final bottomTop = topHeight + stepGap;
+
+    return AdaptiveCanvasPlan(
+      kind: AdaptiveLayoutKind.grid,
+      canvas: CanvasPixelSize(
+        _even(canvasWidth),
+        bottomTop + c.height,
+      ),
+      frames: [
+        _frameFor(
+          source: a,
+          left: _even(((canvasWidth - topWidth) / 2).round()),
+          top: _even(((topHeight - a.height) / 2).round()),
+          width: a.width,
+          height: a.height,
+        ),
+        _frameFor(
+          source: b,
+          left: _even(
+            ((canvasWidth - topWidth) / 2).round() + a.width + pairGap,
+          ),
+          top: _even(((topHeight - b.height) / 2).round()),
+          width: b.width,
+          height: b.height,
+        ),
+        _frameFor(
+          source: c,
+          left: _even(((canvasWidth - c.width) / 2).round()),
+          top: bottomTop,
+          width: c.width,
+          height: c.height,
+        ),
+      ],
+    );
+  }
+
+  /// Uniformly shrink a native-pixel plan so both sides stay within
+  /// [maxExportSide], then re-stack so seam overlaps stay exact.
+  AdaptiveCanvasPlan _fitPlan(AdaptiveCanvasPlan plan) {
+    final longest = math.max(plan.canvas.width, plan.canvas.height);
+    if (longest <= maxExportSide) return plan;
+
+    final scale = maxExportSide / longest;
+    final stepGap = gapPixels - seamOverlapPixels;
+    final scaled = <({CanvasSourceGeometry source, int width, int height, int left})>[];
+    for (final frame in plan.frames) {
+      final source = CanvasSourceGeometry(
+        width: frame.crop.sourceWidth,
+        height: frame.crop.sourceHeight,
+        focusX:
+            (frame.crop.leftPixels + frame.crop.widthPixels / 2) /
+            frame.crop.sourceWidth,
+        focusY:
+            (frame.crop.topPixels + frame.crop.heightPixels / 2) /
+            frame.crop.sourceHeight,
+      );
       final width = _even(
         math.max(
           2,
-          math.min(
-            source.width,
-            normalized.x + normalized.width >= .999999
-                ? canvas.width - left
-                : (normalized.width * canvas.width).floor(),
-          ),
+          math.min(source.width, (frame.rect.width * scale).floor()),
         ),
       );
       final height = _even(
@@ -283,49 +376,111 @@ class MotionCanvasLayout {
           2,
           math.min(
             source.height,
-            normalized.y + normalized.height >= .999999
-                ? canvas.height - top
-                : (normalized.height * canvas.height).floor(),
+            (width * frame.rect.height / frame.rect.width).round(),
           ),
         ),
       );
-      final cropLeftPixels =
-          ((source.focusX * source.width - width / 2).round())
-              .clamp(0, math.max(0, source.width - width))
-              .toInt();
-      final cropTopPixels =
-          ((source.focusY * source.height - height / 2).round())
-              .clamp(0, math.max(0, source.height - height))
-              .toInt();
-      frames.add(
-        CanvasFrame(
-          rect: CanvasRect(
-            left.toDouble(),
-            top.toDouble(),
-            width.toDouble(),
-            height.toDouble(),
+      final left = _even(math.max(0, (frame.rect.x * scale).round()));
+      scaled.add((source: source, width: width, height: height, left: left));
+    }
+
+    final frames = <CanvasFrame>[];
+    if (plan.kind == AdaptiveLayoutKind.horizontalTimeFlow) {
+      final canvasHeight = scaled.map((item) => item.height).reduce(math.max);
+      var x = 0;
+      for (var index = 0; index < scaled.length; index++) {
+        final item = scaled[index];
+        final top = _even(((canvasHeight - item.height) / 2).round());
+        frames.add(
+          _frameFor(
+            source: item.source,
+            left: x,
+            top: top,
+            width: item.width,
+            height: item.height,
           ),
-          crop: SmartCropWindow(
-            leftPixels: cropLeftPixels,
-            topPixels: cropTopPixels,
-            widthPixels: width,
-            heightPixels: height,
-            sourceWidth: source.width,
-            sourceHeight: source.height,
-          ),
-          retainedSourceFraction:
-              (width * height) / (source.width * source.height),
-        ),
+        );
+        x += item.width + (index == scaled.length - 1 ? 0 : stepGap);
+      }
+      return AdaptiveCanvasPlan(
+        kind: plan.kind,
+        canvas: CanvasPixelSize(x, _even(canvasHeight)),
+        frames: frames,
       );
     }
+
+    // verticalTimeFlow, grid, single, and other stacks: rebuild tops in order.
+    final canvasWidth = _even(
+      math.max(
+        2,
+        scaled
+            .map((item) => item.left + item.width)
+            .reduce(math.max),
+      ),
+    );
+    var y = 0;
+    for (var index = 0; index < scaled.length; index++) {
+      final item = scaled[index];
+      final left = item.left
+          .clamp(0, math.max(0, canvasWidth - item.width))
+          .toInt();
+      frames.add(
+        _frameFor(
+          source: item.source,
+          left: left,
+          top: y,
+          width: item.width,
+          height: item.height,
+        ),
+      );
+      y += item.height + (index == scaled.length - 1 ? 0 : stepGap);
+    }
     return AdaptiveCanvasPlan(
-      kind: candidate.kind,
-      canvas: canvas,
+      kind: plan.kind,
+      canvas: CanvasPixelSize(canvasWidth, y),
       frames: frames,
     );
   }
 
-  double _score(_Candidate candidate, AdaptiveCanvasPlan plan) {
+  CanvasFrame _frameFor({
+    required CanvasSourceGeometry source,
+    required int left,
+    required int top,
+    required int width,
+    required int height,
+  }) {
+    final frameWidth = _even(width.clamp(2, source.width));
+    final frameHeight = _even(height.clamp(2, source.height));
+    final cropLeftPixels =
+        ((source.focusX * source.width - frameWidth / 2).round())
+            .clamp(0, math.max(0, source.width - frameWidth))
+            .toInt();
+    final cropTopPixels =
+        ((source.focusY * source.height - frameHeight / 2).round())
+            .clamp(0, math.max(0, source.height - frameHeight))
+            .toInt();
+
+    return CanvasFrame(
+      rect: CanvasRect(
+        left.toDouble(),
+        top.toDouble(),
+        frameWidth.toDouble(),
+        frameHeight.toDouble(),
+      ),
+      crop: SmartCropWindow(
+        leftPixels: cropLeftPixels,
+        topPixels: cropTopPixels,
+        widthPixels: frameWidth,
+        heightPixels: frameHeight,
+        sourceWidth: source.width,
+        sourceHeight: source.height,
+      ),
+      retainedSourceFraction:
+          (frameWidth * frameHeight) / (source.width * source.height),
+    );
+  }
+
+  double _score(AdaptiveCanvasPlan plan) {
     final cropLoss =
         plan.frames.fold<double>(
           0,
@@ -336,18 +491,36 @@ class MotionCanvasLayout {
         .map((frame) => frame.retainedSourceFraction)
         .toList(growable: false);
     final balance = retained.reduce(math.max) - retained.reduce(math.min);
-    final resolutionPenalty = 1 - plan.canvas.width / targetCanvasWidth;
+    final resolutionPenalty =
+        1 - plan.canvas.width / math.max(1, maxExportSide);
     final coveredArea = plan.frames.fold<double>(
       0,
       (sum, frame) => sum + frame.rect.width * frame.rect.height,
     );
-    final emptyCanvasPenalty =
-        1 - coveredArea / (plan.canvas.width * plan.canvas.height);
-    return cropLoss * .68 +
-        balance * .16 +
-        resolutionPenalty * .16 +
-        emptyCanvasPenalty * 2 +
-        candidate.aestheticPenalty;
+    final emptyCanvasPenalty = math.max(
+      0,
+      1 - coveredArea / (plan.canvas.width * plan.canvas.height),
+    );
+    // Prefer canvases that fill a phone Studio card. Extreme tall stacks
+    // create the large side pillarboxes users hate on landscape pairs.
+    final ar = plan.canvas.aspectRatio;
+    final phoneFitPenalty = ar < .55
+        ? (.55 - ar) * 1.8
+        : ar > 2.0
+        ? (ar - 2.0) * 1.2
+        : 0.0;
+    final kindBias = switch (plan.kind) {
+      AdaptiveLayoutKind.grid => .01,
+      AdaptiveLayoutKind.pinterest => .02,
+      AdaptiveLayoutKind.filmStrip => .08,
+      _ => 0.0,
+    };
+    return cropLoss * .78 +
+        balance * .1 +
+        resolutionPenalty * .05 +
+        emptyCanvasPenalty * 2.2 +
+        phoneFitPenalty +
+        kindBias;
   }
 
   int _even(int value) => value.isEven ? value : value - 1;

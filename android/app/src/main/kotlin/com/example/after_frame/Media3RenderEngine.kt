@@ -1,8 +1,9 @@
 package com.example.after_frame
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Color
 import android.media.MediaExtractor
-import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -14,9 +15,11 @@ import androidx.media3.common.OverlaySettings
 import androidx.media3.common.VideoCompositorSettings
 import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.effect.GaussianBlur
+import androidx.media3.effect.BitmapOverlay
 import androidx.media3.effect.Crop
+import androidx.media3.effect.GaussianBlur
 import androidx.media3.effect.HslAdjustment
+import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.Presentation
 import androidx.media3.effect.RgbAdjustment
 import androidx.media3.effect.StaticOverlaySettings
@@ -32,6 +35,8 @@ import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /** Media3-only creation engine. It renders MP4 bytes but never publishes media. */
@@ -162,11 +167,95 @@ class Media3RenderEngine(
             )
         }
 
-        return Composition.Builder(sequences)
+        val builder = Composition.Builder(sequences)
             .setVideoCompositorSettings(
                 CollageCompositor(slots, request.canvasWidth, request.canvasHeight),
             )
-            .build()
+        // Media3 alpha-blends every video quad and pairs secondary frames by
+        // nearest primary timestamp. Abutting content seams therefore shimmer.
+        // Paint opaque static bars into the planned gutters after compose so
+        // the join is identical on every encoded frame.
+        seamOverlayEffect(slots, request.canvasWidth, request.canvasHeight)?.let { seam ->
+            builder.setEffects(Effects(/* audioProcessors= */ emptyList(), listOf(seam)))
+        }
+        return builder.build()
+    }
+
+    /**
+     * Builds opaque solid strips that sit in every gutter between slots.
+     *
+     * Applied as a composition OverlayEffect (after DefaultVideoCompositor), so
+     * they cover Media3's alpha-blended video edges. Static black pixels cannot
+     * shimmer with nearest-frame secondary sync the way abutting video content
+     * does — which is why Studio (Flutter opaque composite) looked fine while
+     * the exported Live divider floated.
+     */
+    private fun seamOverlayEffect(
+        slots: List<Slot>,
+        canvasWidth: Int,
+        canvasHeight: Int,
+    ): Effect? {
+        if (slots.size < 2) return null
+        val seams = mutableListOf<Slot>()
+        for (i in 0 until slots.lastIndex) {
+            for (j in i + 1..slots.lastIndex) {
+                val a = slots[i]
+                val b = slots[j]
+                val overlapX = min(a.x + a.width, b.x + b.width) - max(a.x, b.x)
+                val overlapY = min(a.y + a.height, b.y + b.height) - max(a.y, b.y)
+                if (overlapX > 0) {
+                    val gapTop = min(a.y + a.height, b.y + b.height)
+                    val gapBottom = max(a.y, b.y)
+                    val gap = gapBottom - gapTop
+                    if (gap in 1..8) {
+                        seams += Slot(
+                            x = max(a.x, b.x),
+                            y = gapTop,
+                            width = overlapX,
+                            height = gap,
+                        )
+                    }
+                }
+                if (overlapY > 0) {
+                    val gapLeft = min(a.x + a.width, b.x + b.width)
+                    val gapRight = max(a.x, b.x)
+                    val gap = gapRight - gapLeft
+                    if (gap in 1..8) {
+                        seams += Slot(
+                            x = gapLeft,
+                            y = max(a.y, b.y),
+                            width = gap,
+                            height = overlapY,
+                        )
+                    }
+                }
+            }
+        }
+        if (seams.isEmpty()) return null
+
+        val overlays = seams.map { seam ->
+            // Expand 1px onto each neighbouring video so any sub-pixel blend
+            // fringe is buried under opaque, unchanging pixels.
+            val left = (seam.x - 1).coerceAtLeast(0)
+            val top = (seam.y - 1).coerceAtLeast(0)
+            val right = (seam.x + seam.width + 1).coerceAtMost(canvasWidth)
+            val bottom = (seam.y + seam.height + 1).coerceAtMost(canvasHeight)
+            val width = (right - left).coerceAtLeast(1)
+            val height = (bottom - top).coerceAtLeast(1)
+            val strip = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            strip.eraseColor(Color.BLACK)
+            val leftNdc = left.toFloat() / canvasWidth * 2f - 1f
+            val topNdc = 1f - top.toFloat() / canvasHeight * 2f
+            BitmapOverlay.createStaticBitmapOverlay(
+                strip,
+                StaticOverlaySettings.Builder()
+                    .setOverlayFrameAnchor(-1f, 1f)
+                    .setBackgroundFrameAnchor(leftNdc, topNdc)
+                    .setScale(1f, 1f)
+                    .build(),
+            )
+        }
+        return OverlayEffect(overlays)
     }
 
     private fun editedItem(
@@ -310,10 +399,10 @@ class Media3RenderEngine(
                 val encodedCropPixels = call.argument<List<*>>("sourceCropPixelRects").orEmpty()
                 val encodedSourceSizes = call.argument<List<*>>("collageSourceSizes").orEmpty()
                 val canvasWidth = evenDimension(
-                    (call.argument<Number>("canvasWidth")?.toInt() ?: 1080).coerceIn(2, 2160),
+                    (call.argument<Number>("canvasWidth")?.toInt() ?: 1080).coerceIn(2, 4320),
                 )
                 val canvasHeight = evenDimension(
-                    (call.argument<Number>("canvasHeight")?.toInt() ?: 1920).coerceIn(2, 3840),
+                    (call.argument<Number>("canvasHeight")?.toInt() ?: 1920).coerceIn(2, 4320),
                 )
                 val sources = uris.mapIndexed { index, uri ->
                     val start = starts.getOrNull(index)?.toLong() ?: defaultStart
@@ -457,11 +546,16 @@ class Media3RenderEngine(
 
         override fun getOverlaySettings(inputId: Int, presentationTimeUs: Long): OverlaySettings {
             val slot = slots[inputId.coerceIn(0, slots.lastIndex)]
-            val centerX = (slot.x + slot.width / 2f) / canvasWidth * 2f - 1f
-            val centerY = 1f - (slot.y + slot.height / 2f) / canvasHeight * 2f
+            // Anchor at the overlay's top-left and place that corner on the
+            // slot's top-left in NDC. Center-anchoring with float math can leave
+            // a sub-pixel clear hairline between stacked frames that H.264 then
+            // makes shimmer up and down in album playback.
+            val leftNdc = slot.x.toFloat() / canvasWidth * 2f - 1f
+            val topNdc = 1f - slot.y.toFloat() / canvasHeight * 2f
             return StaticOverlaySettings.Builder()
-                .setOverlayFrameAnchor(0f, 0f)
-                .setBackgroundFrameAnchor(centerX, centerY)
+                .setOverlayFrameAnchor(-1f, 1f)
+                .setBackgroundFrameAnchor(leftNdc, topNdc)
+                .setScale(1f, 1f)
                 .build()
         }
     }

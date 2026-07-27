@@ -6,8 +6,8 @@
 /// there is no creation mode to pick — the shape is derived, never chosen.
 library;
 
-/// Upper bound for one canvas. Beyond three sources a 9:16 canvas can no longer
-/// keep every frame above a usable resolution.
+/// Upper bound for one canvas. Beyond three sources a content-first canvas can
+/// no longer keep every frame above a usable resolution.
 const int maxLiveSources = 3;
 
 /// Shortest and longest motion a Live may hold, in milliseconds.

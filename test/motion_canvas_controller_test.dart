@@ -85,7 +85,7 @@ void main() {
   });
 
   test(
-    'adaptive canvas chooses a balanced frame family without source scaling',
+    'adaptive canvas preserves source framing without forced 9:16 crop',
     () {
       const layout = MotionCanvasLayout();
       final widePlan = layout.planFor(const [
@@ -99,6 +99,9 @@ void main() {
       ]);
 
       expect(widePlan.kind, AdaptiveLayoutKind.verticalTimeFlow);
+      // Stacked landscapes derive a near-square canvas, not a skinny 9:16 card.
+      expect(widePlan.canvas.aspectRatio, greaterThan(.8));
+      expect(widePlan.canvas.aspectRatio, lessThan(1.1));
       expect(mixedPlan.frames, hasLength(3));
       for (var index = 0; index < mixedPlan.frames.length; index++) {
         final frame = mixedPlan.frames[index];
@@ -112,6 +115,12 @@ void main() {
           frame.crop.height * source.height,
           closeTo(frame.rect.height, .01),
         );
+        // Full native pixels when the arrangement fits the export bound.
+        expect(frame.retainedSourceFraction, closeTo(1, .001));
+        expect(
+          frame.rect.width / frame.rect.height,
+          closeTo(source.width / source.height, .01),
+        );
       }
     },
   );
@@ -124,8 +133,9 @@ void main() {
 
     expect(controller.canvasPlan.kind, AdaptiveLayoutKind.verticalTimeFlow);
     for (final frame in controller.frames) {
-      expect(frame.rect.width, controller.canvasPlan.canvas.width);
-      expect(frame.rect.height, lessThanOrEqualTo(1080));
+      expect(frame.rect.width, landscape.width);
+      expect(frame.rect.height, landscape.height);
+      expect(frame.retainedSourceFraction, closeTo(1, .001));
       expect(
         frame.crop.width * landscape.width,
         closeTo(frame.rect.width, .01),
@@ -137,7 +147,7 @@ void main() {
     }
   });
 
-  test('720p landscape pair never selects decorative Film Strip gutters', () {
+  test('720p landscape pair keeps a fixed opaque gutter between panels', () {
     const hdLandscape = MediaAsset(
       uri: 'content://video/hd-landscape',
       name: 'hd-landscape.mp4',
@@ -158,6 +168,12 @@ void main() {
       plan.frames.last.rect.y + plan.frames.last.rect.height,
       plan.canvas.height,
     );
+    final gutter =
+        plan.frames.last.rect.y -
+        (plan.frames.first.rect.y + plan.frames.first.rect.height);
+    // Fixed 2px gutter is filled by an opaque export overlay so Media3's
+    // alpha-blended video edges cannot shimmer.
+    expect(gutter, 2);
     final uncoveredPixels =
         plan.canvas.width * plan.canvas.height -
         plan.frames.fold<double>(
@@ -167,11 +183,6 @@ void main() {
     expect(
       uncoveredPixels / (plan.canvas.width * plan.canvas.height),
       lessThan(.01),
-    );
-    expect(
-      plan.frames.last.rect.y -
-          (plan.frames.first.rect.y + plan.frames.first.rect.height),
-      lessThanOrEqualTo(4),
     );
   });
 
@@ -222,18 +233,20 @@ void main() {
     expect(controller.clips.last.thumbnailPath, isNull);
   });
 
-  test('manual Smart Crop focus is clamped and changes the crop window', () {
+  test('manual Smart Crop focus is stored for later headroom', () {
     final controller = MotionCanvasController(
       assets: const [landscape, portrait, square],
     );
     addTearDown(controller.dispose);
 
-    final before = controller.frames.first.crop.left;
+    // Full-source frames leave no pan headroom; focus is still recorded so a
+    // later export-bound shrink can re-center on the user's choice.
     controller.moveCropFocus(0, 10, -10);
     expect(controller.activeClip.focus.x, 1);
     expect(controller.activeClip.focus.y, 0);
-    expect(controller.frames.first.crop.left, greaterThanOrEqualTo(before));
-    expect(controller.frames.first.crop.leftPixels, isA<int>());
+    expect(controller.frames.first.crop.leftPixels, 0);
+    expect(controller.frames.first.crop.topPixels, 0);
+    expect(controller.frames.first.retainedSourceFraction, closeTo(1, .001));
     controller.resetSmartCrop(0);
     expect(controller.activeClip.focus.x, .5);
     expect(controller.activeClip.focus.confidence, lessThan(1));

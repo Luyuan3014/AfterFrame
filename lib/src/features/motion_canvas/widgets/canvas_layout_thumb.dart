@@ -123,9 +123,9 @@ class _ThumbFrame extends StatelessWidget {
                   }
                   return Image.file(
                     File(path),
-                    fit: BoxFit.cover,
-                    // Mirrors the Smart Crop default so the miniature frames the
-                    // same part of the source as the export will.
+                    // Cells keep the source aspect ratio, so contain matches
+                    // the full-framing collage plan (no silent cover crop).
+                    fit: BoxFit.contain,
                     alignment: Alignment(focus.x * 2 - 1, focus.y * 2 - 1),
                     errorBuilder: (_, _, _) => const SizedBox.shrink(),
                   );

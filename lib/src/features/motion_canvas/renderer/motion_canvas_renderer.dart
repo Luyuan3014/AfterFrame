@@ -224,6 +224,26 @@ class _MotionCanvasRendererState extends State<MotionCanvasRenderer> {
                           constraints,
                           i,
                         ),
+                      // Match the export-time opaque seam overlay so Studio
+                      // preview does not hide a problem the album will show.
+                      for (final seam in _seamRects(plan))
+                        Positioned(
+                          left:
+                              seam.x / plan.canvas.width * constraints.maxWidth,
+                          top:
+                              seam.y /
+                              plan.canvas.height *
+                              constraints.maxHeight,
+                          width:
+                              seam.width /
+                              plan.canvas.width *
+                              constraints.maxWidth,
+                          height:
+                              seam.height /
+                              plan.canvas.height *
+                              constraints.maxHeight,
+                          child: const ColoredBox(color: Colors.black),
+                        ),
                     ],
                   );
                 },
@@ -270,6 +290,58 @@ class _MotionCanvasRendererState extends State<MotionCanvasRenderer> {
           : null,
     ),
   );
+
+  /// Gutters between frames — same geometry the export OverlayEffect fills.
+  List<CanvasRect> _seamRects(AdaptiveCanvasPlan plan) {
+    final seams = <CanvasRect>[];
+    for (var i = 0; i < plan.frames.length; i++) {
+      for (var j = i + 1; j < plan.frames.length; j++) {
+        final a = plan.frames[i].rect;
+        final b = plan.frames[j].rect;
+        final overlapX =
+            (a.x + a.width < b.x + b.width ? a.x + a.width : b.x + b.width) -
+            (a.x > b.x ? a.x : b.x);
+        final overlapY =
+            (a.y + a.height < b.y + b.height ? a.y + a.height : b.y + b.height) -
+            (a.y > b.y ? a.y : b.y);
+        if (overlapX > 0) {
+          final gapTop = a.y + a.height < b.y + b.height
+              ? a.y + a.height
+              : b.y + b.height;
+          final gapBottom = a.y > b.y ? a.y : b.y;
+          final gap = gapBottom - gapTop;
+          if (gap >= 1 && gap <= 8) {
+            seams.add(
+              CanvasRect(
+                a.x > b.x ? a.x : b.x,
+                gapTop,
+                overlapX,
+                gap,
+              ),
+            );
+          }
+        }
+        if (overlapY > 0) {
+          final gapLeft = a.x + a.width < b.x + b.width
+              ? a.x + a.width
+              : b.x + b.width;
+          final gapRight = a.x > b.x ? a.x : b.x;
+          final gap = gapRight - gapLeft;
+          if (gap >= 1 && gap <= 8) {
+            seams.add(
+              CanvasRect(
+                gapLeft,
+                a.y > b.y ? a.y : b.y,
+                gap,
+                overlapY,
+              ),
+            );
+          }
+        }
+      }
+    }
+    return seams;
+  }
 
   int _orientedWidth(int index) {
     final asset = widget.controller.clips[index].asset;

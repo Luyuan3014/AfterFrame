@@ -28,120 +28,140 @@ class StudioCanvasPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: controller,
-    builder: (context, _) => Padding(
-      padding: fullscreen
-          ? const EdgeInsets.symmetric(horizontal: 8)
-          : const EdgeInsets.fromLTRB(20, 8, 20, 24),
-      child: Center(
-        child: Container(
-          constraints: BoxConstraints(
-            maxHeight: fullscreen ? MediaQuery.sizeOf(context).height : 430,
-          ),
-          decoration: BoxDecoration(
-            color: const Color(0xFF111216),
-            borderRadius: BorderRadius.circular(fullscreen ? 20 : 32),
-            border: fullscreen ? null : Border.all(color: Colors.white10),
-            boxShadow: fullscreen
-                ? null
-                : const [
-                    BoxShadow(
-                      color: Color(0x73000000),
-                      blurRadius: 36,
-                      offset: Offset(0, 20),
+    builder: (context, _) {
+      final plan = controller.canvasPlan;
+      final maxHeight = fullscreen
+          ? MediaQuery.sizeOf(context).height
+          : 430.0;
+      return Padding(
+        padding: fullscreen
+            ? const EdgeInsets.symmetric(horizontal: 8)
+            : const EdgeInsets.fromLTRB(20, 8, 20, 24),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // Fill the card like Live single-frame: use the real canvas ratio
+            // and take the largest rect that fits width × maxHeight.
+            final maxWidth = constraints.maxWidth;
+            var width = maxWidth;
+            var height = width / plan.canvas.aspectRatio;
+            if (height > maxHeight) {
+              height = maxHeight;
+              width = height * plan.canvas.aspectRatio;
+            }
+            return Center(
+              child: Container(
+                width: width,
+                height: height,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF111216),
+                  borderRadius: BorderRadius.circular(fullscreen ? 20 : 32),
+                  border: fullscreen
+                      ? null
+                      : Border.all(color: Colors.white10),
+                  boxShadow: fullscreen
+                      ? null
+                      : const [
+                          BoxShadow(
+                            color: Color(0x73000000),
+                            blurRadius: 36,
+                            offset: Offset(0, 20),
+                          ),
+                        ],
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    MotionCanvasRenderer(
+                      controller: controller,
+                      showChrome: false,
+                      playbackEnabled: active,
+                      showPlaybackControl: false,
+                      interactive: !fullscreen,
+                    ),
+                    const DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Color(0x26000000),
+                            Colors.transparent,
+                            Color(0x52000000),
+                          ],
+                          stops: [0, .48, 1],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      left: 16,
+                      top: 16,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(99),
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 7,
+                            ),
+                            color: Colors.black.withValues(alpha: .42),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.motion_photos_on_rounded,
+                                  size: 14,
+                                  color: AfterFrameColors.lime,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  context.l10n.text('canvasPreviewBadge', {
+                                    'count': controller.clips.length,
+                                  }),
+                                  style: const TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 1.1,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (!fullscreen && onFullscreen != null)
+                      Positioned(
+                        right: 12,
+                        top: 12,
+                        child: IconButton.filled(
+                          tooltip: '全屏预览',
+                          onPressed: onFullscreen,
+                          style: IconButton.styleFrom(
+                            backgroundColor: Colors.black45,
+                            foregroundColor: Colors.white,
+                          ),
+                          icon: const Icon(
+                            Icons.open_in_full_rounded,
+                            size: 18,
+                          ),
+                        ),
+                      ),
+                    Positioned(
+                      left: 18,
+                      right: 18,
+                      bottom: 14,
+                      child: _CanvasTimeline(controller: controller),
                     ),
                   ],
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: AspectRatio(
-            aspectRatio: controller.layout.aspectRatio,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                MotionCanvasRenderer(
-                  controller: controller,
-                  showChrome: false,
-                  playbackEnabled: active,
-                  showPlaybackControl: false,
-                  interactive: !fullscreen,
                 ),
-                const DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        Color(0x26000000),
-                        Colors.transparent,
-                        Color(0x52000000),
-                      ],
-                      stops: [0, .48, 1],
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: 16,
-                  top: 16,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(99),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 7,
-                        ),
-                        color: Colors.black.withValues(alpha: .42),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.motion_photos_on_rounded,
-                              size: 14,
-                              color: AfterFrameColors.lime,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              context.l10n.text('canvasPreviewBadge', {
-                                'count': controller.clips.length,
-                              }),
-                              style: const TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 1.1,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                if (!fullscreen && onFullscreen != null)
-                  Positioned(
-                    right: 12,
-                    top: 12,
-                    child: IconButton.filled(
-                      tooltip: '全屏预览',
-                      onPressed: onFullscreen,
-                      style: IconButton.styleFrom(
-                        backgroundColor: Colors.black45,
-                        foregroundColor: Colors.white,
-                      ),
-                      icon: const Icon(Icons.open_in_full_rounded, size: 18),
-                    ),
-                  ),
-                Positioned(
-                  left: 18,
-                  right: 18,
-                  bottom: 14,
-                  child: _CanvasTimeline(controller: controller),
-                ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         ),
-      ),
-    ),
+      );
+    },
   );
 }
 
