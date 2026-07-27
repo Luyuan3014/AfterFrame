@@ -32,10 +32,11 @@ AfterFrame 的核心是“视频片段 → Motion Photo/MP4”和最多三路视
 ```text
 Flutter
 ├─ 首页统一创作入口与 1–3 段有序多选
+├─ 素材选择页按已选数量预告作品形态（真实 Adaptive Canvas 迷你版式）
 ├─ AfterFrame Studio
 │  ├─ Live 单帧状态、封面和时间轴
 │  └─ Motion Canvas 拼图控制器、渲染器和工具区
-├─ Studio 内模式切换、预览和作品页面
+├─ Studio 预览、素材增删和作品页面
 └─ 冻结导出参数
        │
        ▼
@@ -57,11 +58,20 @@ Android MethodChannel
 
 `Media3RenderEngine` 只生成工作目录中的 MP4，不发布文件。`ExportService` 独占任务互斥、Motion Photo 打包、MediaStore 发布、作品索引和分享。
 
+## 一套创作规则
+
+AfterFrame 没有“创作模式”这个概念。Studio 编辑的是一个**有序素材列表**，作品形态由素材数量派生，用户永远不需要、也无法直接选择形态。规则集中在 `lib/src/models/live_rules.dart`：
+
+- `LiveComposition.forSourceCount`：1 段 → `singleFrame`（满画布，保留原始画幅，不裁剪）；2–3 段 → `adaptiveCanvas`（自动版式，同步播放）。
+- `maxLiveSources = 3`、`minLiveDurationMs = 500`、`maxLiveDurationMs = 6000`：布局器、单帧状态和拼图控制器共用同一批常量。
+- `LiveDefaults`：声音、循环、增强和变速的默认值对所有形态一致，因此改变素材数量不会静默改变播放语义。
+- 形态在素材选择页就已确定：底部条用真实 `AdaptiveCanvasPlan` 渲染迷你版式，并写明“将生成”的形态；Studio 顶栏只陈述形态，不提供切换控件。
+- 改变形态的唯一方式是改变素材：在拼图素材轨上移除一段即可，删到 1 段时 Studio 自动回到单帧规则，且移除可撤销。素材数量的增加需要返回素材库重新选择。
+
 ## 拼图规则
 
-- 首页不再暴露独立拼图入口；素材统一进入 AfterFrame Studio，只有 Studio 的“创作模式”负责区分 Live 单帧与 Live 拼图。
-- Studio 共享顶栏、导出反馈、预览卡片和玻璃面板视觉层；两种模式都遵循“预览 → 封面 → 时间轴 → 更多设置 → 生成”。拼图业务状态仍由独立 `MotionCanvasController` 管理，不与单帧时间轴状态混写。
-- 选择 1 段素材时拼图模式不可用；选择 2–3 段时默认进入拼图，并允许在 Studio 内无损切回单帧。
+- 首页不再暴露独立拼图入口，素材统一进入 AfterFrame Studio。
+- Studio 共享顶栏、导出反馈、预览卡片和玻璃面板视觉层；两种形态都遵循“预览 → 封面 → 时间轴 → 更多设置 → 生成”。拼图业务状态仍由独立 `MotionCanvasController` 管理，不与单帧时间轴状态混写；素材列表变化时通过 `LiveEditorState.syncSources` 和 `adoptSettings` 单向对齐。
 - 拼图支持 2–3 路视频，每一路保留独立裁切区间；公共时长取最短有效区间，防止某路提前结束后出现空帧。
 - “布局 / 风格 / 转场 / 音乐”不是当前产品能力，也不在 UI、控制器或导出协议中保留伪入口。声音、循环、增强和变速使用与 Live 单帧相同的设置语义；需要音频时只添加第一路主音轨序列。
 - Live 拼图采用 Canvas First。`MotionCanvasLayout` 的产物是 `AdaptiveCanvasPlan`：画布像素尺寸、按时间顺序排列的 Frame 像素矩形，以及每路素材在源空间中的 Smart Crop 窗口。布局不得返回任何逐素材缩放参数。

@@ -60,7 +60,9 @@ class _MotionCanvasRendererState extends State<MotionCanvasRenderer> {
         .where((id) => !expected.contains(id))
         .toList();
     for (final id in obsolete) {
-      await _players.remove(id)?.dispose();
+      final player = _players.remove(id);
+      player?.removeListener(_onPlayerTick);
+      await player?.dispose();
     }
     for (final clip in widget.controller.clips) {
       if (_players.containsKey(clip.id)) continue;
@@ -84,11 +86,18 @@ class _MotionCanvasRendererState extends State<MotionCanvasRenderer> {
         // the rest of the canvas.
       }
     }
+    await _applyPlaybackIntent();
     if (mounted) setState(() {});
   }
 
   void _onCanvasChanged() {
     if (!mounted) return;
+    final clipIds = widget.controller.clips.map((clip) => clip.id).toSet();
+    if (clipIds.length != _players.length ||
+        !clipIds.every(_players.containsKey)) {
+      unawaited(_ensurePlayers());
+      return;
+    }
     unawaited(_applyPlaybackIntent());
     setState(() {});
   }

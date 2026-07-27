@@ -44,7 +44,8 @@ AfterFrame 是 Android 优先的 Flutter 动态记忆编辑器：从相册视频
 
 ## 当前能力
 
-- MediaStore 应用内视频选择、顺序多选和显式完成确认
+- MediaStore 应用内视频选择、顺序多选，并在进入 Studio 前预告作品形态
+- 一套创作规则：1 段素材生成保留原始画幅的 Live 单帧，2～3 段素材生成 Adaptive Canvas 自动版式的 Live 拼图，无需选择模式
 - 原生视频信息读取、缩略图和精确封面抽帧
 - 0.5x–2.0x 变速、裁切、静音/保留主素材音频和轻量色彩增强
 - Media3 多视频 Composition，支持横向、纵向和主次网格布局及焦点裁切

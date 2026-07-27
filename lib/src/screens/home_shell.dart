@@ -58,11 +58,7 @@ class _HomeShellState extends State<HomeShell> {
       if (!mounted || assets == null || assets.isEmpty) return;
       final result = await Navigator.of(context).push<LiveExport>(
         MaterialPageRoute(
-          builder: (_) => LiveEditorPage(
-            assets: assets,
-            engine: _engine,
-            initialMode: assets.length > 1 ? 1 : 0,
-          ),
+          builder: (_) => LiveEditorPage(assets: assets, engine: _engine),
         ),
       );
       if (result != null && mounted) {

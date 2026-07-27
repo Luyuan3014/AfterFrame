@@ -42,6 +42,7 @@ void main() {
                 child: StudioCanvasTools(
                   controller: controller,
                   onEditClip: (_) {},
+                  onRemoveClip: (_) {},
                 ),
               ),
             ),
@@ -57,5 +58,37 @@ void main() {
     expect(find.text('Style'), findsNothing);
     expect(find.text('Transition'), findsNothing);
     expect(find.text('Music'), findsNothing);
+  });
+
+  testWidgets('each source can be removed while the canvas keeps two', (
+    tester,
+  ) async {
+    final controller = MotionCanvasController(assets: assets);
+    addTearDown(controller.dispose);
+    var removed = -1;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AppLanguageScope(
+          controller: AppLanguageController(AppLanguage.english),
+          child: Scaffold(
+            body: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: StudioCanvasTools(
+                  controller: controller,
+                  onEditClip: (_) {},
+                  onRemoveClip: (index) => removed = index,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byTooltip('Remove this clip'), findsNWidgets(2));
+    await tester.tap(find.byTooltip('Remove this clip').last);
+    expect(removed, 1);
   });
 }

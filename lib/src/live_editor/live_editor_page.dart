@@ -2,35 +2,39 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import '../models/live_rules.dart';
 import '../models/media_asset.dart';
 import '../services/media_engine.dart';
 import '../theme.dart';
 import '../localization/app_localizations.dart';
 import '../features/motion_canvas/controllers/motion_canvas_controller.dart';
 import '../features/motion_canvas/export/export_service.dart';
+import '../features/motion_canvas/models/motion_clip.dart';
 import '../features/motion_canvas/widgets/studio_canvas.dart';
 import 'components/advanced_settings.dart';
 import 'components/cover_selector.dart';
-import 'components/creation_mode_selector.dart';
 import 'components/generate_button.dart';
 import 'components/fullscreen_preview.dart';
 import 'components/live_preview_card.dart';
-import 'components/source_selector.dart';
 import 'components/timeline_editor.dart';
 import 'live_editor_scope.dart';
 import 'models/live_editor_state.dart';
 
+/// AfterFrame Studio.
+///
+/// Studio edits an ordered source list and never asks the user to pick a mode:
+/// one source keeps its original framing, two or three are arranged by Adaptive
+/// Canvas. Everything after that — cover, timeline, settings, export — is one
+/// shared rule.
 class LiveEditorPage extends StatefulWidget {
   const LiveEditorPage({
     super.key,
     required this.assets,
     required this.engine,
-    this.initialMode = 0,
   }) : assert(assets.length > 0);
 
   final List<MediaAsset> assets;
   final MediaEngine engine;
-  final int initialMode;
 
   @override
   State<LiveEditorPage> createState() => _LiveEditorPageState();
@@ -45,18 +49,18 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
   @override
   void initState() {
     super.initState();
-    _editorState = LiveEditorState(
-      asset: widget.assets.first,
-      mode: CreationMode.fromIndex(
-        widget.assets.length < 2 ? 0 : widget.initialMode,
-      ),
-      assets: widget.assets,
-    );
+    _editorState = LiveEditorState(assets: widget.assets);
     _canvas = MotionCanvasController(assets: widget.assets)
       ..addListener(_refreshCanvas);
     _canvasExportService = MotionCanvasExportService(widget.engine);
-    _loadFrames();
-    _loadCanvasThumbnails();
+    if (_editorState.composition.isCanvas) {
+      // The canvas rail owns its own thumbnails; the single-frame timeline strip
+      // is only extracted if the user later drops back to one source.
+      _editorState.finishLoading();
+      _loadCanvasThumbnails();
+    } else {
+      _loadFrames();
+    }
   }
 
   @override
@@ -73,15 +77,14 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
   }
 
   Future<void> _loadCanvasThumbnails() async {
-    for (var index = 0; index < _canvas.clips.length; index++) {
-      final clip = _canvas.clips[index];
+    for (final clip in _canvas.clips) {
       try {
         final path = await widget.engine.extractFrame(
           clip.asset.uri,
           clip.trimStartMs + clip.durationMs ~/ 2,
         );
         if (!mounted) return;
-        _canvas.setThumbnail(index, path);
+        _canvas.setThumbnail(clip.id, path);
       } catch (_) {
         // A failed rail thumbnail must not block the synchronized preview.
       }
@@ -111,17 +114,47 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
     }
   }
 
-  void _selectSource(int index) {
-    if (index == _editorState.activeAssetIndex || _editorState.isProcessing) {
-      return;
-    }
-    _editorState.replaceAsset(index, widget.assets[index]);
-    _loadFrames();
+  /// Removing a source is the only way to change a work's shape. Dropping to a
+  /// single clip returns Studio to the single-frame rule without any mode
+  /// switch, and the change stays undoable.
+  void _removeCanvasClip(int index) {
+    if (_canvas.isExporting) return;
+    final removed = _canvas.removeClip(index);
+    if (removed == null) return;
+    _adoptCanvasSources();
+    final l10n = context.l10n;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(l10n.text('sourceRemoved')),
+          behavior: SnackBarBehavior.floating,
+          action: SnackBarAction(
+            label: l10n.text('undo'),
+            onPressed: () => _restoreCanvasClip(index, removed),
+          ),
+        ),
+      );
+  }
+
+  void _restoreCanvasClip(int index, MotionClip clip) {
+    _canvas.restoreClip(index, clip);
+    _adoptCanvasSources();
+  }
+
+  void _adoptCanvasSources() {
+    _editorState.adoptSettings(
+      audio: _canvas.audioEnabled,
+      loop: _canvas.loopEnabled,
+      enhancement: _canvas.enhancementEnabled,
+      speed: _canvas.playbackSpeed,
+    );
+    if (_editorState.syncSources(_canvas.assets)) _loadFrames();
   }
 
   Future<void> _generate() async {
-    if (_editorState.mode == CreationMode.motionCollage) {
-      await _generateCollage();
+    if (_editorState.composition.isCanvas) {
+      await _generateCanvas();
       return;
     }
     if (_editorState.selectedCover == null || _editorState.isProcessing) return;
@@ -168,8 +201,8 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
     }
   }
 
-  Future<void> _generateCollage() async {
-    if (_canvas.isExporting || !_editorState.canUseCollage) return;
+  Future<void> _generateCanvas() async {
+    if (_canvas.isExporting) return;
     _canvas.setExporting(true);
     try {
       final result = await _canvasExportService.export(_canvas);
@@ -407,32 +440,26 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
   Widget build(BuildContext context) => LiveEditorScope(
     state: _editorState,
     child: _LiveEditorScaffold(
-      assets: widget.assets,
-      engine: widget.engine,
-      onSourceSelected: _selectSource,
       onGenerate: _generate,
       canvas: _canvas,
       onEditCanvasClip: _editCanvasClip,
+      onRemoveCanvasClip: _removeCanvasClip,
     ),
   );
 }
 
 class _LiveEditorScaffold extends StatefulWidget {
   const _LiveEditorScaffold({
-    required this.assets,
-    required this.engine,
-    required this.onSourceSelected,
     required this.onGenerate,
     required this.canvas,
     required this.onEditCanvasClip,
+    required this.onRemoveCanvasClip,
   });
 
-  final List<MediaAsset> assets;
-  final MediaEngine engine;
-  final ValueChanged<int> onSourceSelected;
   final VoidCallback onGenerate;
   final MotionCanvasController canvas;
   final ValueChanged<int> onEditCanvasClip;
+  final ValueChanged<int> onRemoveCanvasClip;
 
   @override
   State<_LiveEditorScaffold> createState() => _LiveEditorScaffoldState();
@@ -441,7 +468,7 @@ class _LiveEditorScaffold extends StatefulWidget {
 class _LiveEditorScaffoldState extends State<_LiveEditorScaffold> {
   bool _previewRouteOpen = false;
 
-  Future<void> _openFullscreen(bool collageMode) async {
+  Future<void> _openFullscreen(LiveComposition composition) async {
     if (_previewRouteOpen) return;
     final editorState = LiveEditorScope.of(context);
     setState(() => _previewRouteOpen = true);
@@ -450,9 +477,9 @@ class _LiveEditorScaffoldState extends State<_LiveEditorScaffold> {
     try {
       await FullscreenPreview.show(
         context,
-        label: collageMode ? 'Live Collage' : 'Live Frame',
+        label: composition.isCanvas ? 'Live Collage' : 'Live Frame',
         exitHint: context.l10n.text('fullscreenExitHint'),
-        child: collageMode
+        child: composition.isCanvas
             ? StudioCanvasPreview(controller: widget.canvas, fullscreen: true)
             : LiveEditorScope(
                 state: editorState,
@@ -468,9 +495,10 @@ class _LiveEditorScaffoldState extends State<_LiveEditorScaffold> {
   Widget build(BuildContext context) {
     final state = LiveEditorScope.of(context);
     final l10n = context.l10n;
-    final collageMode = state.mode == CreationMode.motionCollage;
-    final canGenerate = collageMode
-        ? state.canUseCollage && !widget.canvas.isExporting
+    final composition = state.composition;
+    final isCanvas = composition.isCanvas;
+    final canGenerate = isCanvas
+        ? !widget.canvas.isExporting
         : state.selectedCover != null && !state.isProcessing;
     return Scaffold(
       appBar: AppBar(
@@ -484,8 +512,13 @@ class _LiveEditorScaffoldState extends State<_LiveEditorScaffold> {
                 letterSpacing: -.2,
               ),
             ),
+            // The shape is stated instead of chosen, so the header carries it.
             Text(
-              l10n.text('studioSubtitle'),
+              isCanvas
+                  ? l10n.text('canvasSummary', {
+                      'count': widget.canvas.clips.length,
+                    })
+                  : l10n.text('singleFrameSummary'),
               style: const TextStyle(
                 fontSize: 9,
                 color: AfterFrameColors.muted,
@@ -555,17 +588,19 @@ class _LiveEditorScaffoldState extends State<_LiveEditorScaffold> {
                       SliverToBoxAdapter(
                         child: AnimatedSwitcher(
                           duration: const Duration(milliseconds: 280),
-                          child: collageMode
+                          child: isCanvas
                               ? StudioCanvasPreview(
                                   key: const ValueKey('canvasPreview'),
                                   controller: widget.canvas,
                                   active: !_previewRouteOpen,
-                                  onFullscreen: () => _openFullscreen(true),
+                                  onFullscreen: () =>
+                                      _openFullscreen(composition),
                                 )
                               : LivePreviewCard(
                                   key: const ValueKey('singlePreview'),
                                   active: !_previewRouteOpen,
-                                  onFullscreen: () => _openFullscreen(false),
+                                  onFullscreen: () =>
+                                      _openFullscreen(composition),
                                 ),
                         ),
                       ),
@@ -590,54 +625,46 @@ class _LiveEditorScaffoldState extends State<_LiveEditorScaffold> {
                               ),
                               padding: const EdgeInsets.fromLTRB(
                                 18,
-                                24,
+                                26,
                                 18,
                                 30,
                               ),
                               child: Column(
                                 children: [
-                                  if (widget.assets.length > 1 &&
-                                      !collageMode) ...[
-                                    _Reveal(
-                                      child: SourceSelector(
-                                        assets: widget.assets,
-                                        engine: widget.engine,
-                                        onSelected: widget.onSourceSelected,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 22),
-                                  ],
-                                  const _Reveal(child: CreationModeSelector()),
-                                  const SizedBox(height: 28),
                                   _Reveal(
-                                    child: AnimatedSwitcher(
+                                    child: AnimatedSize(
                                       duration:
                                           MediaQuery.disableAnimationsOf(
                                             context,
                                           )
                                           ? Duration.zero
                                           : const Duration(milliseconds: 280),
-                                      child:
-                                          state.mode == CreationMode.liveFrame
-                                          ? const CoverSelector(
-                                              key: ValueKey('cover'),
+                                      curve: Curves.easeOutCubic,
+                                      alignment: Alignment.topCenter,
+                                      child: AnimatedSwitcher(
+                                        duration:
+                                            MediaQuery.disableAnimationsOf(
+                                              context,
                                             )
-                                          : StudioCanvasTools(
-                                              key: const ValueKey(
-                                                'canvasTools',
+                                            ? Duration.zero
+                                            : const Duration(milliseconds: 280),
+                                        child: isCanvas
+                                            ? StudioCanvasTools(
+                                                key: const ValueKey(
+                                                  'canvasTools',
+                                                ),
+                                                controller: widget.canvas,
+                                                onEditClip:
+                                                    widget.onEditCanvasClip,
+                                                onRemoveClip:
+                                                    widget.onRemoveCanvasClip,
+                                              )
+                                            : const _SingleFrameTools(
+                                                key: ValueKey('frameTools'),
                                               ),
-                                              controller: widget.canvas,
-                                              onEditClip:
-                                                  widget.onEditCanvasClip,
-                                            ),
+                                      ),
                                     ),
                                   ),
-                                  if (!collageMode) ...[
-                                    const SizedBox(height: 30),
-                                    const _Reveal(child: TimelineEditor()),
-                                    const SizedBox(height: 24),
-                                    const _Reveal(child: AdvancedSettings()),
-                                  ],
                                   const SizedBox(height: 20),
                                   _Reveal(
                                     child: GenerateButton(
@@ -659,6 +686,24 @@ class _LiveEditorScaffoldState extends State<_LiveEditorScaffold> {
             ),
     );
   }
+}
+
+/// Single-frame tools follow the same order as the canvas ones: cover, then
+/// timeline, then shared settings.
+class _SingleFrameTools extends StatelessWidget {
+  const _SingleFrameTools({super.key});
+
+  @override
+  Widget build(BuildContext context) => const Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      CoverSelector(),
+      SizedBox(height: 30),
+      TimelineEditor(),
+      SizedBox(height: 24),
+      AdvancedSettings(),
+    ],
+  );
 }
 
 class _Reveal extends StatelessWidget {

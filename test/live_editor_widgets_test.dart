@@ -1,7 +1,6 @@
 import 'dart:ui' show Tristate;
 
 import 'package:after_frame/src/live_editor/components/advanced_settings.dart';
-import 'package:after_frame/src/live_editor/components/creation_mode_selector.dart';
 import 'package:after_frame/src/live_editor/components/generate_button.dart';
 import 'package:after_frame/src/live_editor/live_editor_scope.dart';
 import 'package:after_frame/src/live_editor/models/live_editor_state.dart';
@@ -28,24 +27,15 @@ void main() {
     rotation: 0,
   );
 
-  testWidgets('small screen can switch mode and expand More Settings', (
-    tester,
-  ) async {
+  testWidgets('small screen can expand More Settings', (tester) async {
     tester.view.physicalSize = const Size(320, 568);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    final state = LiveEditorState(
-      asset: asset,
-      assets: const [asset, secondAsset],
-      mode: CreationMode.liveFrame,
-    );
+    final state = LiveEditorState(assets: const [asset, secondAsset]);
     addTearDown(state.dispose);
 
     await tester.pumpWidget(_host(state));
-    await tester.tap(find.text('Motion Collage'));
-    await tester.pumpAndSettle();
-    expect(state.mode, CreationMode.motionCollage);
 
     await tester.ensureVisible(find.byKey(const Key('more-settings')));
     await tester.tap(find.byKey(const Key('more-settings')));
@@ -53,10 +43,21 @@ void main() {
     expect(find.text('2x'), findsOneWidget);
   });
 
+  testWidgets('Studio exposes no creation-mode control', (tester) async {
+    final state = LiveEditorState(assets: const [asset, secondAsset]);
+    addTearDown(state.dispose);
+
+    await tester.pumpWidget(_host(state));
+
+    expect(find.text('CREATE MODE'), findsNothing);
+    expect(find.text('Live Frame'), findsNothing);
+    expect(find.text('Motion Collage'), findsNothing);
+  });
+
   testWidgets('generate status and accessibility semantics are exposed', (
     tester,
   ) async {
-    final state = LiveEditorState(asset: asset, mode: CreationMode.liveFrame);
+    final state = LiveEditorState(assets: const [asset]);
     addTearDown(state.dispose);
     await tester.pumpWidget(_host(state));
 
@@ -79,7 +80,6 @@ Widget _host(LiveEditorState state) => MaterialApp(
         body: SingleChildScrollView(
           child: Column(
             children: [
-              const CreationModeSelector(),
               const AdvancedSettings(),
               GenerateButton(onPressed: () {}),
             ],

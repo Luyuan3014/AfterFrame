@@ -1,15 +1,18 @@
 import 'package:flutter/animation.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../../models/live_rules.dart';
 import '../../../models/media_asset.dart';
 import '../models/motion_canvas_layout.dart';
 import '../models/motion_clip.dart';
 
 class MotionCanvasController extends ChangeNotifier {
   MotionCanvasController({required List<MediaAsset> assets})
-    : clips = List.generate(assets.length.clamp(1, 3), (index) {
+    : clips = List.generate(assets.length.clamp(1, maxLiveSources), (index) {
         final asset = assets[index];
-        final end = asset.durationMs.clamp(500, 6000).toInt();
+        final end = asset.durationMs
+            .clamp(minLiveDurationMs, maxLiveDurationMs)
+            .toInt();
         return MotionClip(
           id: '${asset.uri}#$index',
           asset: asset,
@@ -32,33 +35,30 @@ class MotionCanvasController extends ChangeNotifier {
   int positionMs = 0;
   bool isPlaying = false;
   bool isExporting = false;
-  bool audioEnabled = true;
-  bool loopEnabled = true;
-  bool enhancementEnabled = false;
-  double playbackSpeed = 1;
+  bool audioEnabled = LiveDefaults.audioEnabled;
+  bool loopEnabled = LiveDefaults.loopEnabled;
+  bool enhancementEnabled = LiveDefaults.enhancementEnabled;
+  double playbackSpeed = LiveDefaults.playbackSpeed;
 
   AdaptiveCanvasPlan get canvasPlan => layout.planFor(
     clips
-        .map((clip) {
-          final rotated =
-              clip.asset.rotation == 90 || clip.asset.rotation == 270;
-          return CanvasSourceGeometry(
-            width: rotated ? clip.asset.height : clip.asset.width,
-            height: rotated ? clip.asset.width : clip.asset.height,
-            focusX: clip.focus.x,
-            focusY: clip.focus.y,
-            subjectConfidence: clip.focus.confidence,
-          );
-        })
+        .map((clip) => canvasGeometryFor(clip.asset, focus: clip.focus))
         .toList(growable: false),
   );
 
   List<CanvasFrame> get frames => canvasPlan.frames;
 
+  List<MediaAsset> get assets =>
+      clips.map((clip) => clip.asset).toList(growable: false);
+
+  /// A canvas always keeps at least one source. Removing the last clip would
+  /// leave Studio without anything to edit.
+  bool get canRemoveClip => clips.length > 1;
+
   int get durationMs => clips
       .map((clip) => clip.durationMs)
       .reduce((a, b) => a < b ? a : b)
-      .clamp(500, 6000);
+      .clamp(minLiveDurationMs, maxLiveDurationMs);
 
   MotionClip get activeClip => clips[activeClipIndex];
 
@@ -95,10 +95,31 @@ class MotionCanvasController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Drops one source and lets Adaptive Canvas re-plan. Returns the removed
+  /// clip so the caller can offer an undo.
+  MotionClip? removeClip(int index) {
+    if (!canRemoveClip || index < 0 || index >= clips.length) return null;
+    final removed = clips.removeAt(index);
+    activeClipIndex = activeClipIndex.clamp(0, clips.length - 1);
+    isPlaying = false;
+    positionMs = positionMs.clamp(0, durationMs);
+    notifyListeners();
+    return removed;
+  }
+
+  void restoreClip(int index, MotionClip clip) {
+    if (clips.length >= maxLiveSources) return;
+    clips.insert(index.clamp(0, clips.length), clip);
+    activeClipIndex = clips.indexOf(clip);
+    isPlaying = false;
+    positionMs = positionMs.clamp(0, durationMs);
+    notifyListeners();
+  }
+
   void setTrim(int index, int startMs, int endMs) {
     final assetDuration = clips[index].asset.durationMs;
-    final safeStart = startMs.clamp(0, assetDuration - 500);
-    final safeEnd = endMs.clamp(safeStart + 500, assetDuration);
+    final safeStart = startMs.clamp(0, assetDuration - minLiveDurationMs);
+    final safeEnd = endMs.clamp(safeStart + minLiveDurationMs, assetDuration);
     clips[index] = clips[index].copyWith(
       trimStartMs: safeStart,
       trimEndMs: safeEnd,
@@ -150,7 +171,11 @@ class MotionCanvasController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setThumbnail(int index, String path) {
+  /// Addressed by clip id because the rail can be reordered or trimmed while
+  /// thumbnails are still being extracted.
+  void setThumbnail(String clipId, String path) {
+    final index = clips.indexWhere((clip) => clip.id == clipId);
+    if (index < 0) return;
     clips[index] = clips[index].copyWith(thumbnailPath: path);
     notifyListeners();
   }

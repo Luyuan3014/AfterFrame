@@ -1,4 +1,5 @@
 import '../../../models/media_asset.dart';
+import 'motion_canvas_layout.dart';
 
 enum SubjectKind { person, landscape, sky, detail }
 
@@ -24,6 +25,20 @@ CropFocus smartCropFocusFor(MediaAsset asset) {
     // it is deterministic and remains replaceable by on-device saliency data.
     y: portrait ? .43 : .5,
     confidence: portrait ? .35 : .2,
+  );
+}
+
+/// Oriented source geometry for the layout planner. Rotation metadata is
+/// resolved here so no caller has to swap width and height again.
+CanvasSourceGeometry canvasGeometryFor(MediaAsset asset, {CropFocus? focus}) {
+  final rotated = asset.rotation == 90 || asset.rotation == 270;
+  final effective = focus ?? smartCropFocusFor(asset);
+  return CanvasSourceGeometry(
+    width: rotated ? asset.height : asset.width,
+    height: rotated ? asset.width : asset.height,
+    focusX: effective.x,
+    focusY: effective.y,
+    subjectConfidence: effective.confidence,
   );
 }
 

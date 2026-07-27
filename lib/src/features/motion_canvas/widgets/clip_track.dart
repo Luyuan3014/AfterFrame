@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../../../localization/app_localizations.dart';
 import '../../../theme.dart';
 import '../controllers/motion_canvas_controller.dart';
 
@@ -10,10 +11,12 @@ class MotionClipTrack extends StatelessWidget {
     super.key,
     required this.controller,
     required this.onEdit,
+    required this.onRemove,
   });
 
   final MotionCanvasController controller;
   final ValueChanged<int> onEdit;
+  final ValueChanged<int> onRemove;
 
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -68,6 +71,8 @@ class MotionClipTrack extends StatelessWidget {
                           : Image.file(
                               File(clip.thumbnailPath!),
                               fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) =>
+                                  const ColoredBox(color: Color(0xFF292A2F)),
                             ),
                     ),
                   ),
@@ -93,11 +98,19 @@ class MotionClipTrack extends StatelessWidget {
                             fontWeight: FontWeight.w700,
                           ),
                         ),
-                        const SizedBox(height: 9),
-                        const Icon(
-                          Icons.drag_indicator_rounded,
-                          size: 16,
-                          color: Colors.white38,
+                        const SizedBox(height: 7),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.drag_indicator_rounded,
+                              size: 16,
+                              color: Colors.white38,
+                            ),
+                            if (controller.canRemoveClip)
+                              _RemoveClipButton(
+                                onPressed: () => onRemove(index),
+                              ),
+                          ],
                         ),
                       ],
                     ),
@@ -108,6 +121,42 @@ class MotionClipTrack extends StatelessWidget {
           ),
         );
       },
+    ),
+  );
+}
+
+/// Removing a source is how the user changes the work's shape: drop to one clip
+/// and Studio returns to the single-frame rule.
+class _RemoveClipButton extends StatelessWidget {
+  const _RemoveClipButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: context.l10n.text('removeSource'),
+    child: InkResponse(
+      onTap: onPressed,
+      radius: 18,
+      containedInkWell: true,
+      customBorder: const CircleBorder(),
+      child: Padding(
+        padding: const EdgeInsets.all(4),
+        child: Container(
+          width: 17,
+          height: 17,
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: .38),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white24),
+          ),
+          child: const Icon(
+            Icons.close_rounded,
+            size: 11,
+            color: Colors.white70,
+          ),
+        ),
+      ),
     ),
   );
 }

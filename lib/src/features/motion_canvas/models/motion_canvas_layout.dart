@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import '../../../models/live_rules.dart';
+
 enum MotionExportFormat { motionPhoto, mp4 }
 
 /// The editorial families considered by Adaptive Canvas. The selected family
@@ -159,7 +161,10 @@ class MotionCanvasLayout {
   double get aspectRatio => targetCanvasWidth / targetCanvasHeight;
 
   AdaptiveCanvasPlan planFor(List<CanvasSourceGeometry> sources) {
-    final safeSources = sources.take(3).map(_sanitize).toList(growable: true);
+    final safeSources = sources
+        .take(maxLiveSources)
+        .map(_sanitize)
+        .toList(growable: true);
     if (safeSources.isEmpty) {
       safeSources.add(const CanvasSourceGeometry(width: 1080, height: 1920));
     }

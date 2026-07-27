@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import '../features/motion_canvas/widgets/canvas_layout_thumb.dart';
+import '../models/live_rules.dart';
 import '../models/media_asset.dart';
 import '../services/media_engine.dart';
 import '../theme.dart';
@@ -68,20 +71,25 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
 
   void _toggle(MediaAsset item) {
     if (_submitting) return;
-    setState(() {
-      final index = _selectedUris.indexOf(item.uri);
-      if (index >= 0) {
-        _selectedUris.removeAt(index);
-      } else {
-        if (_selectedUris.length < 3) {
-          _selectedUris.add(item.uri);
-        } else {
-          WidgetsBinding.instance.addPostFrameCallback(
-            (_) => _message('collageSourceLimit'),
-          );
-        }
-      }
-    });
+    final index = _selectedUris.indexOf(item.uri);
+    if (index >= 0) {
+      setState(() => _selectedUris.removeAt(index));
+      return;
+    }
+    if (_selectedUris.length >= maxLiveSources) {
+      _message('sourceLimit');
+      return;
+    }
+    setState(() => _selectedUris.add(item.uri));
+  }
+
+  /// Selection order is the editorial order, so it is preserved verbatim.
+  List<MediaAsset> get _selectedAssets {
+    final byUri = {for (final video in _videos) video.uri: video};
+    return _selectedUris
+        .map((uri) => byUri[uri])
+        .whereType<MediaAsset>()
+        .toList(growable: false);
   }
 
   Future<void> _preview(MediaAsset item) =>
@@ -97,12 +105,8 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
       // 返回了 uri / name / durationMs / width / height），避免再次
       // 使用 Android MediaMetadataRetriever 读取素材信息。
       // getSafParameterForRead 处理 content URI 时可能 native crash。
-      // 同时保持用户在 picker 中的选择顺序（对 collage 多选很重要）。
-      final videoMap = {for (final v in _videos) v.uri: v};
-      final assets = _selectedUris
-          .map((uri) => videoMap[uri]!)
-          .toList(growable: false);
-      if (mounted) Navigator.pop(context, assets);
+      final assets = _selectedAssets;
+      if (mounted && assets.isNotEmpty) Navigator.pop(context, assets);
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -154,13 +158,19 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
         ),
       ),
       body: _body(),
-      bottomNavigationBar: _selectedUris.isEmpty
-          ? null
-          : _SelectionBar(
-              count: _selectedUris.length,
-              loading: _submitting,
-              onSubmit: _submit,
-            ),
+      bottomNavigationBar: AnimatedSize(
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+        alignment: Alignment.topCenter,
+        child: _selectedUris.isEmpty
+            ? const SizedBox(width: double.infinity)
+            : _CompositionBar(
+                assets: _selectedAssets,
+                engine: widget.engine,
+                loading: _submitting,
+                onSubmit: _submit,
+              ),
+      ),
     );
   }
 
@@ -413,52 +423,146 @@ class _ThumbnailRetry extends StatelessWidget {
   );
 }
 
-class _SelectionBar extends StatelessWidget {
-  const _SelectionBar({
-    required this.count,
+/// Announces the work the current selection will produce.
+///
+/// The miniature is the real Adaptive Canvas plan, so the number of chosen
+/// sources — and nothing else — visibly decides the shape before Studio opens.
+class _CompositionBar extends StatelessWidget {
+  const _CompositionBar({
+    required this.assets,
+    required this.engine,
     required this.loading,
     required this.onSubmit,
   });
-  final int count;
+
+  final List<MediaAsset> assets;
+  final MediaEngine engine;
   final bool loading;
   final VoidCallback onSubmit;
 
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final composition = LiveComposition.forSourceCount(assets.length);
+    final isCanvas = composition.isCanvas;
+    final title = isCanvas
+        ? l10n.text('canvasSummary', {'count': assets.length})
+        : l10n.text('singleFrameSummary');
+    final detail = l10n.text(
+      isCanvas ? 'canvasDetail' : 'singleFrameDetail',
+      {'count': assets.length},
+    );
+    final remaining = maxLiveSources - assets.length;
     return SafeArea(
       top: false,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(18, 11, 18, 11),
-        decoration: const BoxDecoration(
-          color: AfterFrameColors.panel,
-          border: Border(top: BorderSide(color: Colors.white10)),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                l10n.text('selectedInOrder', {'count': count}),
-                style: const TextStyle(fontWeight: FontWeight.w700),
+      child: ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 26, sigmaY: 26),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 15),
+            decoration: const BoxDecoration(
+              color: AfterFrameColors.glass,
+              border: Border(
+                top: BorderSide(color: AfterFrameColors.glassBorder),
               ),
             ),
-            FilledButton(
-              onPressed: loading ? null : onSubmit,
-              style: FilledButton.styleFrom(
-                minimumSize: const Size(116, 48),
-                padding: const EdgeInsets.symmetric(horizontal: 22),
-              ),
-              child: loading
-                  ? const SizedBox.square(
-                      dimension: 19,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.black,
+            child: Row(
+              children: [
+                CanvasLayoutThumb(assets: assets, engine: engine),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Column(
+                    // The bottom slot offers the whole screen height, so the bar
+                    // must measure itself from its content or it would cover the
+                    // library and swallow every tap.
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              l10n.text('willCreate'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: AfterFrameColors.lime,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 1.6,
+                              ),
+                            ),
+                          ),
+                          if (remaining > 0) ...[
+                            const SizedBox(width: 7),
+                            Flexible(
+                              child: Text(
+                                l10n.text('roomForMore', {'count': remaining}),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w700,
+                                  color: AfterFrameColors.muted,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
-                    )
-                  : Text(l10n.text('continueCount', {'count': count})),
+                      const SizedBox(height: 5),
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -.2,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        detail,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          height: 1.35,
+                          color: AfterFrameColors.muted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                FilledButton(
+                  onPressed: loading ? null : onSubmit,
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 48),
+                    // Keeps a long label or a large text scale from starving the
+                    // announcement next to it.
+                    maximumSize: const Size(176, double.infinity),
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
+                  ),
+                  child: loading
+                      ? const SizedBox.square(
+                          dimension: 19,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.black,
+                          ),
+                        )
+                      : Text(
+                          l10n.text('enterStudio'),
+                          maxLines: 1,
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );

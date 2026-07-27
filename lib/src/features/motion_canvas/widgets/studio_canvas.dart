@@ -101,9 +101,9 @@ class StudioCanvasPreview extends StatelessWidget {
                             ),
                             const SizedBox(width: 6),
                             Text(
-                              context.l10n
-                                  .text('collagePreviewBadge')
-                                  .toUpperCase(),
+                              context.l10n.text('canvasPreviewBadge', {
+                                'count': controller.clips.length,
+                              }),
                               style: const TextStyle(
                                 fontSize: 9,
                                 fontWeight: FontWeight.w900,
@@ -145,17 +145,19 @@ class StudioCanvasPreview extends StatelessWidget {
   );
 }
 
-/// Collage-specific media selection, presented with the same cover, timeline,
-/// advanced-settings, and generate order as Live single-frame.
+/// Multi-source editing, presented with the same cover, timeline,
+/// advanced-settings, and generate order as a single-frame Live.
 class StudioCanvasTools extends StatelessWidget {
   const StudioCanvasTools({
     super.key,
     required this.controller,
     required this.onEditClip,
+    required this.onRemoveClip,
   });
 
   final MotionCanvasController controller;
   final ValueChanged<int> onEditClip;
+  final ValueChanged<int> onRemoveClip;
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
@@ -165,7 +167,11 @@ class StudioCanvasTools extends StatelessWidget {
       children: [
         _CanvasCoverSelector(controller: controller),
         const SizedBox(height: 30),
-        _CanvasClipTimeline(controller: controller, onEditClip: onEditClip),
+        _CanvasClipTimeline(
+          controller: controller,
+          onEditClip: onEditClip,
+          onRemoveClip: onRemoveClip,
+        ),
         const SizedBox(height: 24),
         _CanvasAdvancedSettings(controller: controller),
       ],
@@ -272,9 +278,11 @@ class _CanvasClipTimeline extends StatelessWidget {
   const _CanvasClipTimeline({
     required this.controller,
     required this.onEditClip,
+    required this.onRemoveClip,
   });
   final MotionCanvasController controller;
   final ValueChanged<int> onEditClip;
+  final ValueChanged<int> onRemoveClip;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -313,11 +321,19 @@ class _CanvasClipTimeline extends StatelessWidget {
         ],
       ),
       const SizedBox(height: 12),
-      MotionClipTrack(controller: controller, onEdit: onEditClip),
+      MotionClipTrack(
+        controller: controller,
+        onEdit: onEditClip,
+        onRemove: onRemoveClip,
+      ),
       const SizedBox(height: 7),
       Text(
-        context.l10n.text('collageTrackHint'),
-        style: const TextStyle(fontSize: 10, color: AfterFrameColors.muted),
+        context.l10n.text('canvasTrackHint'),
+        style: const TextStyle(
+          fontSize: 10,
+          height: 1.4,
+          color: AfterFrameColors.muted,
+        ),
       ),
     ],
   );

@@ -20,8 +20,8 @@ void main() {
     const zh = AppLocalizations(AppLanguage.chinese);
     const en = AppLocalizations(AppLanguage.english);
 
-    expect(zh.text('studioSubtitle'), '创造你的动态瞬间');
-    expect(en.text('studioSubtitle'), 'Create your living moment');
+    expect(zh.text('enterStudio'), '进入 Studio');
+    expect(en.text('enterStudio'), 'Enter Studio');
     expect(zh.text('savedToAlbum'), contains('AfterFrame'));
     expect(en.text('savedToAlbum'), contains('AfterFrame'));
   });
@@ -32,5 +32,15 @@ void main() {
 
     expect(zh.text('workCount', {'count': 3}), '3 个动态记忆');
     expect(en.text('workCount', {'count': 3}), '3 living moments');
+  });
+
+  test('the composition summary is derived from the source count', () {
+    const zh = AppLocalizations(AppLanguage.chinese);
+    const en = AppLocalizations(AppLanguage.english);
+
+    expect(zh.text('canvasSummary', {'count': 3}), 'Live 拼图 · 3 格');
+    expect(en.text('canvasSummary', {'count': 3}), 'Live Collage · 3 frames');
+    expect(zh.text('singleFrameSummary'), contains('单帧'));
+    expect(en.text('singleFrameSummary'), contains('Frame'));
   });
 }

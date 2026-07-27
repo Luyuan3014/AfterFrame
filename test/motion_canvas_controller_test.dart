@@ -1,5 +1,6 @@
 import 'package:after_frame/src/features/motion_canvas/controllers/motion_canvas_controller.dart';
 import 'package:after_frame/src/features/motion_canvas/models/motion_canvas_layout.dart';
+import 'package:after_frame/src/models/live_rules.dart';
 import 'package:after_frame/src/models/media_asset.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -40,6 +41,18 @@ void main() {
     expect(controller.positionMs, 4600);
   });
 
+  test('a canvas starts from the shared Live playback defaults', () {
+    final controller = MotionCanvasController(
+      assets: const [landscape, portrait, square],
+    );
+    addTearDown(controller.dispose);
+
+    expect(controller.audioEnabled, LiveDefaults.audioEnabled);
+    expect(controller.loopEnabled, LiveDefaults.loopEnabled);
+    expect(controller.enhancementEnabled, LiveDefaults.enhancementEnabled);
+    expect(controller.playbackSpeed, LiveDefaults.playbackSpeed);
+  });
+
   test('collage uses the same advanced settings model as Live frame', () {
     final controller = MotionCanvasController(
       assets: const [landscape, portrait, square],
@@ -52,8 +65,8 @@ void main() {
     controller.setPlaybackSpeed(1.5);
 
     expect(controller.audioEnabled, isFalse);
-    expect(controller.loopEnabled, isFalse);
-    expect(controller.enhancementEnabled, isTrue);
+    expect(controller.loopEnabled, isTrue);
+    expect(controller.enhancementEnabled, isFalse);
     expect(controller.playbackSpeed, 1.5);
   });
 
@@ -160,6 +173,53 @@ void main() {
           (plan.frames.first.rect.y + plan.frames.first.rect.height),
       lessThanOrEqualTo(4),
     );
+  });
+
+  test('removing a source re-plans the canvas and stays undoable', () {
+    final controller = MotionCanvasController(
+      assets: const [landscape, portrait, square],
+    );
+    addTearDown(controller.dispose);
+
+    final removed = controller.removeClip(1);
+
+    expect(removed?.asset.uri, portrait.uri);
+    expect(controller.clips, hasLength(2));
+    expect(controller.frames, hasLength(2));
+    expect(controller.durationMs, 6000);
+
+    controller.restoreClip(1, removed!);
+
+    expect(controller.assets.map((asset) => asset.uri), [
+      landscape.uri,
+      portrait.uri,
+      square.uri,
+    ]);
+    expect(controller.durationMs, 4600);
+  });
+
+  test('the last remaining source cannot be removed', () {
+    final controller = MotionCanvasController(assets: const [landscape]);
+    addTearDown(controller.dispose);
+
+    expect(controller.canRemoveClip, isFalse);
+    expect(controller.removeClip(0), isNull);
+    expect(controller.clips, hasLength(1));
+  });
+
+  test('thumbnails are addressed by clip id across reorders', () {
+    final controller = MotionCanvasController(
+      assets: const [landscape, portrait],
+    );
+    addTearDown(controller.dispose);
+    final portraitId = controller.clips.last.id;
+
+    controller.reorder(1, 0);
+    controller.setThumbnail(portraitId, 'portrait.jpg');
+
+    expect(controller.clips.first.id, portraitId);
+    expect(controller.clips.first.thumbnailPath, 'portrait.jpg');
+    expect(controller.clips.last.thumbnailPath, isNull);
   });
 
   test('manual Smart Crop focus is clamped and changes the crop window', () {

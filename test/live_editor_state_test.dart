@@ -1,4 +1,5 @@
 import 'package:after_frame/src/live_editor/models/live_editor_state.dart';
+import 'package:after_frame/src/models/live_rules.dart';
 import 'package:after_frame/src/models/media_asset.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -11,9 +12,25 @@ void main() {
     height: 1920,
     rotation: 0,
   );
+  const short = MediaAsset(
+    uri: 'content://video/short',
+    name: 'short.mp4',
+    durationMs: 2400,
+    width: 1920,
+    height: 1080,
+    rotation: 0,
+  );
+  const middle = MediaAsset(
+    uri: 'content://video/middle',
+    name: 'middle.mp4',
+    durationMs: 5200,
+    width: 1080,
+    height: 1080,
+    rotation: 0,
+  );
 
   test('initializes the existing six-second editing window', () {
-    final state = LiveEditorState(asset: asset, mode: CreationMode.liveFrame);
+    final state = LiveEditorState(assets: const [asset]);
     addTearDown(state.dispose);
 
     expect(state.videoPath, asset.uri);
@@ -26,7 +43,7 @@ void main() {
   });
 
   test('timeline changes keep cover and position inside the selection', () {
-    final state = LiveEditorState(asset: asset, mode: CreationMode.liveFrame);
+    final state = LiveEditorState(assets: const [asset]);
     addTearDown(state.dispose);
 
     state.setCoverFrame(5000);
@@ -39,7 +56,7 @@ void main() {
   });
 
   test('rejects a range shorter than the existing minimum', () {
-    final state = LiveEditorState(asset: asset, mode: CreationMode.liveFrame);
+    final state = LiveEditorState(assets: const [asset]);
     addTearDown(state.dispose);
 
     state.setTimeline(1000, 1200);
@@ -48,33 +65,8 @@ void main() {
     expect(state.endTime, 6000);
   });
 
-  test('replacing an asset resets media-specific state', () {
-    final state = LiveEditorState(
-      asset: asset,
-      mode: CreationMode.motionCollage,
-    );
-    addTearDown(state.dispose);
-    const replacement = MediaAsset(
-      uri: 'content://video/2',
-      name: 'short.mp4',
-      durationMs: 2400,
-      width: 1920,
-      height: 1080,
-      rotation: 0,
-    );
-
-    state.replaceAsset(1, replacement);
-
-    expect(state.activeAssetIndex, 1);
-    expect(state.videoPath, replacement.uri);
-    expect(state.endTime, 2400);
-    expect(state.coverFrame, 1200);
-    expect(state.isLoading, isTrue);
-    expect(state.mode, CreationMode.motionCollage);
-  });
-
   test('cover suggestions select deterministic extracted moments', () {
-    final state = LiveEditorState(asset: asset, mode: CreationMode.liveFrame);
+    final state = LiveEditorState(assets: const [asset]);
     addTearDown(state.dispose);
     state.setFrames(
       List.generate(
@@ -91,28 +83,34 @@ void main() {
     expect(state.currentPosition, state.coverFrame);
   });
 
-  test('collage mode uses the shortest source duration', () {
-    const short = MediaAsset(
-      uri: 'content://video/2',
-      name: 'short.mp4',
-      durationMs: 3200,
-      width: 1920,
-      height: 1080,
-      rotation: 0,
-    );
+  test('one source produces a single frame without any mode choice', () {
+    final state = LiveEditorState(assets: const [asset]);
+    addTearDown(state.dispose);
+
+    expect(state.composition, LiveComposition.singleFrame);
+    expect(state.assets, hasLength(1));
+  });
+
+  test('two or more sources produce a canvas on the shortest window', () {
+    final state = LiveEditorState(assets: const [asset, short]);
+    addTearDown(state.dispose);
+
+    expect(state.composition, LiveComposition.adaptiveCanvas);
+    expect(state.duration, 2400);
+    expect(state.endTime, 2400);
+  });
+
+  test('a source list longer than the canvas limit is truncated', () {
     final state = LiveEditorState(
-      asset: asset,
-      assets: const [asset, short],
-      mode: CreationMode.motionCollage,
+      assets: const [asset, short, middle, asset],
     );
     addTearDown(state.dispose);
 
-    expect(state.duration, 3200);
-    expect(state.endTime, 3200);
+    expect(state.assets, hasLength(maxLiveSources));
   });
 
   test('manual cover selection and enhancement are reflected in state', () {
-    final state = LiveEditorState(asset: asset, mode: CreationMode.liveFrame);
+    final state = LiveEditorState(assets: const [asset]);
     addTearDown(state.dispose);
 
     state.setCoverFrame(1800);
@@ -124,7 +122,7 @@ void main() {
   });
 
   test('preview position is constrained to the selected live range', () {
-    final state = LiveEditorState(asset: asset, mode: CreationMode.liveFrame);
+    final state = LiveEditorState(assets: const [asset]);
     addTearDown(state.dispose);
     state.setTimeline(1000, 4000);
 
@@ -135,39 +133,43 @@ void main() {
     expect(state.currentPosition, 4000);
   });
 
-  test('single-source Studio refuses an invalid collage mode', () {
-    final state = LiveEditorState(asset: asset, mode: CreationMode.liveFrame);
+  test('dropping to one source returns Studio to the single-frame rule', () {
+    final state = LiveEditorState(assets: const [asset, short]);
     addTearDown(state.dispose);
+    state.finishLoading();
 
-    state.setMode(CreationMode.motionCollage);
+    final needsFrames = state.syncSources(const [short]);
 
-    expect(state.canUseCollage, isFalse);
-    expect(state.mode, CreationMode.liveFrame);
+    expect(needsFrames, isTrue);
+    expect(state.composition, LiveComposition.singleFrame);
+    expect(state.asset.uri, short.uri);
+    expect(state.duration, short.durationMs);
+    expect(state.endTime, 2400);
+    expect(state.isLoading, isTrue);
   });
 
-  test('Studio mode switching recalculates the shared editing window', () {
-    const short = MediaAsset(
-      uri: 'content://video/short',
-      name: 'short.mp4',
-      durationMs: 2400,
-      width: 1920,
-      height: 1080,
-      rotation: 0,
-    );
-    final state = LiveEditorState(
-      asset: asset,
-      assets: const [asset, short],
-      mode: CreationMode.liveFrame,
-    );
+  test('a still-multi-source canvas re-plans without extracting frames', () {
+    final state = LiveEditorState(assets: const [asset, short, middle]);
     addTearDown(state.dispose);
-
-    state.setMode(CreationMode.motionCollage);
-    expect(state.canUseCollage, isTrue);
+    state.finishLoading();
     expect(state.duration, 2400);
-    expect(state.endTime, 2400);
 
-    state.setMode(CreationMode.liveFrame);
-    expect(state.duration, asset.durationMs);
-    expect(state.endTime, 6000);
+    final needsFrames = state.syncSources(const [asset, middle]);
+
+    expect(needsFrames, isFalse);
+    expect(state.composition, LiveComposition.adaptiveCanvas);
+    expect(state.duration, 5200);
+    expect(state.endTime, 5200);
+    expect(state.isLoading, isFalse);
+  });
+
+  test('an unchanged single-frame subject keeps its timeline strip', () {
+    final state = LiveEditorState(assets: const [asset, short]);
+    addTearDown(state.dispose);
+    state.syncSources(const [asset]);
+    state.setFrames(const [FrameSample(path: 'frame.jpg', timeMs: 0)]);
+
+    expect(state.syncSources(const [asset]), isFalse);
+    expect(state.frames, hasLength(1));
   });
 }

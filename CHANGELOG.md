@@ -2,6 +2,18 @@
 
 ## Unreleased - 2026-07-27
 
+- 取消“创作模式”这一概念：作品形态改为由素材数量派生，不再由用户在 Studio 内选择。1 段素材是保留原始画幅的 Live 单帧，2～3 段素材是 Adaptive Canvas 自动版式的 Live 拼图，其余规则（封面瞬间、编辑窗口、播放语义、导出通道）完全共用。
+- 移除 Studio 编辑区的创作模式双卡片选择器和多素材来源选择器，释放约 230px 垂直空间；模式选择器原本在单段素材下永远只能展示一个禁用卡片加一行错误提示。
+- 素材选择页底部改为“形态预告条”：用真实 `AdaptiveCanvasPlan` 渲染与成片一致的迷你版式（含 Smart Crop 默认取景与选择顺序编号），并写明将生成的形态与说明，选择数量变化时版式会平滑重排。玻璃面板与 Studio 底部编辑区统一视觉层。
+- 修复形态预告条撑满整屏、盖住顶栏与素材网格并吞掉全部点击，导致选中一段素材后只能点“进入 Studio”、无法继续多选的问题：条内文案 `Column` 缺少 `MainAxisSize.min`，而 `Scaffold.bottomNavigationBar` 传入的是整屏高度的宽松约束，于是文案列直接占满屏幕。新增 `test/video_picker_screen_test.dart` 断言预告条始终贴底、素材库保持可见可选，防止回归。
+- 形态预告条补充剩余可选数量（“还可再加 N 段”），并在出现与收起时用 `AnimatedSize` 平滑改变素材网格高度；文案全部可省略，按钮设上限宽度，避免长文案或大字号挤压排版。
+- 超过 3 段上限时的提示改为同步弹出，不再依赖 `addPostFrameCallback`，且不再为一次被拒绝的点击触发 `setState`。
+- Studio 顶栏副标题改为陈述当前形态（`Live 单帧 · 保留原始画幅` / `Live 拼图 · N 格`），预览徽章统一为 `AFTER LIVE`，拼图追加格数。
+- 改变形态的唯一方式变为改变素材：拼图素材轨每段增加移除入口，删到 1 段时 Studio 自动回到单帧规则并按需重新抽取时间轴，移除操作可通过 SnackBar 撤销。
+- 将 `maxLiveSources`、`minLiveDurationMs`、`maxLiveDurationMs`、`LiveComposition` 和 `LiveDefaults` 收敛到 `lib/src/models/live_rules.dart`，布局器、单帧状态和拼图控制器不再各自硬编码 3 / 500 / 6000。
+- 统一播放语义默认值：Live 拼图此前默认循环开启、增强关闭，与 Live 单帧相反；现在两者共用 `LiveDefaults`（声音开、单次播放、增强开），改变素材数量不会静默改变导出行为，形态变化时也会带走用户已调整的设置。
+- 修复拼图缩略图按下标写入导致的错配风险，改为按 clip id 寻址；修复素材数量变化后 `MotionCanvasRenderer` 未同步播放器生命周期而残留已移除素材播放器的问题。
+- 删除 `CreationMode`、`CreationModeSelector`、`SourceSelector`、废弃的 `StudioScreen` 别名以及 20 个与双模式相关的文案键。
 - 修复两路 720p 横屏素材错误选择 Film Strip、导致预览和导出出现大面积上下黑边与过宽中缝的问题：装饰性 Film Strip 不再参与自动候选，所有自动布局必须首格贴画布起边、末格贴画布终边，默认分隔缩小到最多 4px。
 - Adaptive Canvas 评分新增未覆盖画布面积惩罚，禁止以“多保留源像素”为由牺牲成片占比；两路横屏素材现在使用铺满画布的纵向时间流。
 - Frame、Smart Crop 起点和裁剪尺寸全部量化为整数像素；导出协议新增 `collagePixelRects`、`sourceCropPixelRects` 和 `collageSourceSizes`，原生层优先消费整数数据并要求裁剪纹理与 Frame 尺寸完全一致，不再容忍 1px 浮点误差，消除上下边缘抖动风险。

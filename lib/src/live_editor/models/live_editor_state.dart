@@ -1,15 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import '../../models/live_rules.dart';
 import '../../models/media_asset.dart';
-
-enum CreationMode {
-  liveFrame,
-  motionCollage;
-
-  static CreationMode fromIndex(int index) {
-    return index == 1 ? CreationMode.motionCollage : CreationMode.liveFrame;
-  }
-}
 
 enum GenerateStatus { idle, processing, success, failed }
 
@@ -19,38 +11,53 @@ enum CoverSuggestion { laterMoment, middleMoment, earlierMoment }
 
 /// Single source of truth for the Live creation workspace.
 ///
-/// Future templates and effects should be added here instead of being owned by
-/// individual widgets.
+/// Studio always edits an ordered source list. The number of sources decides
+/// the work's shape, so there is no editable mode here. Future templates and
+/// effects should be added to this class instead of individual widgets.
 class LiveEditorState extends ChangeNotifier {
-  LiveEditorState({
-    required MediaAsset asset,
-    required this.mode,
-    List<MediaAsset>? assets,
-    this.audioEnabled = true,
-    this.loopEnabled = false,
-    this.enhancementEnabled = true,
-  }) : assets = List.unmodifiable(assets ?? [asset]),
-       _asset = asset,
-       videoPath = asset.uri,
-       duration = asset.durationMs,
-       endTime = asset.durationMs.clamp(1, 6000).toInt(),
-       coverFrame = asset.durationMs.clamp(1, 6000).toInt() ~/ 2,
-       currentPosition = asset.durationMs.clamp(1, 6000).toInt() ~/ 2 {
-    if (mode == CreationMode.motionCollage) {
-      duration = this.assets
-          .take(3)
-          .map((item) => item.durationMs)
-          .reduce((value, element) => value < element ? value : element);
-      endTime = duration.clamp(1, 6000).toInt();
-      coverFrame = endTime ~/ 2;
-      currentPosition = coverFrame;
-    }
+  factory LiveEditorState({
+    required List<MediaAsset> assets,
+    bool audioEnabled = LiveDefaults.audioEnabled,
+    bool loopEnabled = LiveDefaults.loopEnabled,
+    bool enhancementEnabled = LiveDefaults.enhancementEnabled,
+  }) {
+    assert(assets.isNotEmpty, 'Studio needs at least one source.');
+    final sources = List<MediaAsset>.unmodifiable(
+      assets.take(maxLiveSources),
+    );
+    return LiveEditorState._(
+      sources: sources,
+      window: _syncedDuration(sources),
+      audioEnabled: audioEnabled,
+      loopEnabled: loopEnabled,
+      enhancementEnabled: enhancementEnabled,
+    );
   }
 
-  final List<MediaAsset> assets;
+  LiveEditorState._({
+    required List<MediaAsset> sources,
+    required int window,
+    required this.audioEnabled,
+    required this.loopEnabled,
+    required this.enhancementEnabled,
+  }) : _sources = sources,
+       videoPath = sources.first.uri,
+       duration = window,
+       endTime = window.clamp(1, maxLiveDurationMs).toInt(),
+       coverFrame = window.clamp(1, maxLiveDurationMs).toInt() ~/ 2,
+       currentPosition = window.clamp(1, maxLiveDurationMs).toInt() ~/ 2;
 
-  MediaAsset _asset;
-  MediaAsset get asset => _asset;
+  List<MediaAsset> _sources;
+  List<MediaAsset> get assets => _sources;
+
+  /// Editing subject and primary audio track. It is always the first source in
+  /// the user's order.
+  MediaAsset get asset => _sources.first;
+
+  /// The work's shape follows the number of sources. It is never a user choice,
+  /// so nothing in the editor is allowed to set it.
+  LiveComposition get composition =>
+      LiveComposition.forSourceCount(_sources.length);
 
   String videoPath;
   int duration;
@@ -58,7 +65,6 @@ class LiveEditorState extends ChangeNotifier {
   int startTime = 0;
   int endTime;
   int coverFrame;
-  CreationMode mode;
   bool audioEnabled;
   bool loopEnabled;
   bool enhancementEnabled;
@@ -67,12 +73,15 @@ class LiveEditorState extends ChangeNotifier {
 
   /// UI-level extension point. Phase one deliberately does not pass speed to
   /// the native export engine, so video processing behavior remains unchanged.
-  double playbackSpeed = 1;
+  double playbackSpeed = LiveDefaults.playbackSpeed;
 
   List<FrameSample> frames = const [];
   bool isLoading = true;
-  int activeAssetIndex = 0;
   GenerateStatus generateStatus = GenerateStatus.idle;
+
+  /// Source whose timeline strip is currently held in [frames]. Tracking it
+  /// keeps the single-frame cover strip honest when the source list changes.
+  String? _framesUri;
 
   FrameSample? get selectedCover {
     if (frames.isEmpty) return null;
@@ -86,37 +95,45 @@ class LiveEditorState extends ChangeNotifier {
 
   int get liveLength => endTime - startTime;
 
-  bool get canUseCollage => assets.length >= 2;
-
   int get bestMomentTime {
     if (frames.isEmpty) return coverFrame;
     return frames[_suggestedFrameIndex(CoverSuggestion.laterMoment)].timeMs;
   }
 
-  void replaceAsset(int index, MediaAsset value) {
-    activeAssetIndex = index;
-    _asset = value;
-    videoPath = value.uri;
-    duration = mode == CreationMode.motionCollage && assets.length > 1
-        ? assets
-              .take(3)
-              .map((item) => item.durationMs)
-              .reduce((current, next) => current < next ? current : next)
-        : value.durationMs;
+  /// Shortest synchronized window across the sources. A single source keeps its
+  /// own duration, so one rule covers both shapes.
+  static int _syncedDuration(List<MediaAsset> sources) => sources
+      .map((item) => item.durationMs)
+      .reduce((current, next) => current < next ? current : next);
+
+  /// Adopts a new source list and re-derives the shape and the shared editing
+  /// window. Returns `true` when the single-frame timeline strip has to be
+  /// extracted again for the new subject.
+  bool syncSources(List<MediaAsset> value) {
+    if (value.isEmpty) return false;
+    _sources = List.unmodifiable(value.take(maxLiveSources));
+    videoPath = asset.uri;
+    duration = _syncedDuration(_sources);
     startTime = 0;
-    endTime = duration.clamp(1, 6000).toInt();
+    endTime = duration.clamp(1, maxLiveDurationMs).toInt();
     coverFrame = endTime ~/ 2;
     currentPosition = coverFrame;
-    frames = const [];
-    isLoading = true;
-    coverSelectionMode = CoverSelectionMode.suggested;
-    selectedSuggestion = CoverSuggestion.laterMoment;
     generateStatus = GenerateStatus.idle;
+    final needsFrames =
+        composition == LiveComposition.singleFrame && _framesUri != videoPath;
+    if (needsFrames) {
+      frames = const [];
+      isLoading = true;
+      coverSelectionMode = CoverSelectionMode.suggested;
+      selectedSuggestion = CoverSuggestion.laterMoment;
+    }
     notifyListeners();
+    return needsFrames;
   }
 
   void setFrames(List<FrameSample> value) {
     frames = List.unmodifiable(value);
+    _framesUri = videoPath;
     if (coverSelectionMode == CoverSelectionMode.suggested &&
         frames.isNotEmpty) {
       _applySuggestion(selectedSuggestion, notify: false);
@@ -126,25 +143,6 @@ class LiveEditorState extends ChangeNotifier {
 
   void finishLoading() {
     isLoading = false;
-    notifyListeners();
-  }
-
-  void setMode(CreationMode value) {
-    if (mode == value ||
-        (value == CreationMode.motionCollage && !canUseCollage)) {
-      return;
-    }
-    mode = value;
-    duration = value == CreationMode.motionCollage
-        ? assets
-              .take(3)
-              .map((item) => item.durationMs)
-              .reduce((current, next) => current < next ? current : next)
-        : asset.durationMs;
-    startTime = 0;
-    endTime = duration.clamp(1, 6000).toInt();
-    coverFrame = coverFrame.clamp(startTime, endTime).toInt();
-    currentPosition = currentPosition.clamp(startTime, endTime).toInt();
     notifyListeners();
   }
 
@@ -195,8 +193,23 @@ class LiveEditorState extends ChangeNotifier {
     return ((frames.length - 1) * ratio).round();
   }
 
+  /// Adopts playback semantics chosen elsewhere so a change of shape never
+  /// silently resets the user's settings.
+  void adoptSettings({
+    required bool audio,
+    required bool loop,
+    required bool enhancement,
+    required double speed,
+  }) {
+    audioEnabled = audio;
+    loopEnabled = loop;
+    enhancementEnabled = enhancement;
+    playbackSpeed = speed;
+    notifyListeners();
+  }
+
   void setTimeline(int start, int end) {
-    if (end - start < 500) return;
+    if (end - start < minLiveDurationMs) return;
     startTime = start;
     endTime = end;
     coverFrame = coverFrame.clamp(startTime, endTime).toInt();
