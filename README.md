@@ -2,7 +2,7 @@
 
 ## Gitee 应用更新
 
-当前版本提供 Android 同 ABI 安全更新。检查入口位于“我的 → 检查更新”。更新由系统下载服务在后台执行，完成后依次校验：远端 SHA-1、文件大小、APK 可解析性、包名、`versionCode`、`versionName`、当前 ABI 和已安装 App 的签名证书。只有远端 `versionCode` 严格大于当前版本才允许进入下载和安装流程，因此版本名写错、同版本重发和版本回退都会被拒绝。
+当前版本提供 Android 同 ABI 安全更新。检查入口位于“我的 → 检查更新”。更新由系统下载服务在后台执行，完成后依次校验：远端 SHA-1、文件大小、APK 可解析性、包名、`versionCode`、`versionName`、当前 ABI 和已安装 App 的签名证书。校验通过后前台会自动打开系统安装器。只有远端 `versionCode` 严格大于当前版本才允许进入下载和安装流程，因此版本名写错、同版本重发和版本回退都会被拒绝。
 
 生产更新仓库已固定为 `https://gitee.com/luyuan567/after_frame_update.git`，App 默认读取：
 

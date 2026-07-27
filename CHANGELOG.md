@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.4 - 2026-07-28
+
+- 修复“后台下载”进度走满后落入“更新未完成，点按重新检查”、且从不弹出系统安装界面的问题。
+- 根因一：未安装 APK 通过 `getPackageArchiveInfo` 读取签名时，部分 Android 版本只请求 `GET_SIGNING_CERTIFICATES` 会得到 `signingInfo == null`，安全校验被误判失败；现同时回退到遗留 `GET_SIGNATURES`，并在校验前同步 DownloadManager 落盘路径。
+- 根因二：`UpdateDownloadReceiver` 声明为 `exported=false`，系统 DownloadManager 发出的 `ACTION_DOWNLOAD_COMPLETE` 被丢弃，进程不在前台轮询时无法进入校验；现改为可接收系统完成广播，并仅接受本应用持久化的 download id。
+- 前台轮询在下载/校验成功转为 `ready` 后自动打开系统安装器，不再只停在“点按继续安装”；通知文案与本地化同步调整。
+- 更新状态回传补充 `errorDetail`，便于区分校验失败原因；`ARCHITECTURE.md` 同步说明 Receiver 导出与签名回退策略。
+
 ## 0.7.3 - 2026-07-27
 
 - 取消“创作模式”这一概念：作品形态改为由素材数量派生，不再由用户在 Studio 内选择。1 段素材是保留原始画幅的 Live 单帧，2～3 段素材是 Adaptive Canvas 自动版式的 Live 拼图，其余规则（封面瞬间、编辑窗口、播放语义、导出通道）完全共用。

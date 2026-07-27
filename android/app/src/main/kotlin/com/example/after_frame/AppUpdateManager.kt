@@ -50,6 +50,7 @@ internal class AppUpdateManager(private val context: Context) {
             "versionCode" to preferences.getLong(KEY_VERSION_CODE, 0L),
             "notes" to preferences.getString(KEY_NOTES, null),
             "errorCode" to preferences.getString(KEY_ERROR_CODE, null),
+            "errorDetail" to preferences.getString(KEY_ERROR_DETAIL, null),
         )
         val downloadId = preferences.getLong(KEY_DOWNLOAD_ID, -1L)
         if (status == STATUS_DOWNLOADING && downloadId >= 0) {
@@ -158,10 +159,26 @@ internal class AppUpdateManager(private val context: Context) {
 
     fun handleDownloadComplete(downloadId: Long) {
         if (downloadId != preferences.getLong(KEY_DOWNLOAD_ID, -1L)) return
+        val downloadStatus = downloadStatus(downloadId)
+        if (downloadStatus == DownloadManager.STATUS_RUNNING ||
+            downloadStatus == DownloadManager.STATUS_PENDING ||
+            downloadStatus == DownloadManager.STATUS_PAUSED
+        ) {
+            return
+        }
+        if (downloadStatus != DownloadManager.STATUS_SUCCESSFUL) {
+            fail("DOWNLOAD_FAILED")
+            return
+        }
+        syncLocalPathFromDownloadManager(downloadId)
         preferences.edit().putString(KEY_STATUS, STATUS_VERIFYING).apply()
         runCatching { verifyDownloadedApk() }
             .onSuccess {
-                preferences.edit().putString(KEY_STATUS, STATUS_READY).remove(KEY_ERROR_CODE).apply()
+                preferences.edit()
+                    .putString(KEY_STATUS, STATUS_READY)
+                    .remove(KEY_ERROR_CODE)
+                    .remove(KEY_ERROR_DETAIL)
+                    .apply()
                 showReadyNotification()
             }
             .onFailure { fail("VERIFY_FAILED", it) }
@@ -176,12 +193,9 @@ internal class AppUpdateManager(private val context: Context) {
         if (status != STATUS_DOWNLOADING) return
         val id = preferences.getLong(KEY_DOWNLOAD_ID, -1L)
         if (id < 0) return
-        downloadManager.query(DownloadManager.Query().setFilterById(id))?.use { cursor ->
-            if (!cursor.moveToFirst()) return
-            when (cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))) {
-                DownloadManager.STATUS_SUCCESSFUL -> scheduleVerification(id)
-                DownloadManager.STATUS_FAILED -> fail("DOWNLOAD_FAILED")
-            }
+        when (downloadStatus(id)) {
+            DownloadManager.STATUS_SUCCESSFUL -> scheduleVerification(id)
+            DownloadManager.STATUS_FAILED -> fail("DOWNLOAD_FAILED")
         }
     }
 
@@ -222,10 +236,14 @@ internal class AppUpdateManager(private val context: Context) {
     }
 
     private fun verifyDownloadedApk() {
+        val downloadId = preferences.getLong(KEY_DOWNLOAD_ID, -1L)
+        if (downloadId >= 0L) syncLocalPathFromDownloadManager(downloadId)
         val file = File(preferences.getString(KEY_LOCAL_PATH, null) ?: error("Missing update APK"))
         require(file.isFile && file.length() > 0L) { "Downloaded APK is missing" }
         val expectedSize = preferences.getLong(KEY_SIZE, -1L)
-        require(expectedSize <= 0L || file.length() == expectedSize) { "APK size mismatch" }
+        require(expectedSize <= 0L || file.length() == expectedSize) {
+            "APK size mismatch: expected $expectedSize, got ${file.length()}"
+        }
         val expectedSha1 = preferences.getString(KEY_SHA1, null) ?: error("Missing SHA-1")
         require(digest(file, "SHA-1") == expectedSha1) { "APK SHA-1 mismatch" }
 
@@ -244,6 +262,27 @@ internal class AppUpdateManager(private val context: Context) {
         require(apkAbis(file) == setOf(expectedAbi)) { "APK contains the wrong ABI" }
         require(signatures(archive) == signatures(currentPackage())) {
             "APK signing certificate does not match the installed app"
+        }
+    }
+
+    private fun downloadStatus(downloadId: Long): Int? =
+        downloadManager.query(DownloadManager.Query().setFilterById(downloadId))?.use { cursor ->
+            if (!cursor.moveToFirst()) return null
+            cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+        }
+
+    private fun syncLocalPathFromDownloadManager(downloadId: Long) {
+        if (downloadId < 0L) return
+        downloadManager.query(DownloadManager.Query().setFilterById(downloadId))?.use { cursor ->
+            if (!cursor.moveToFirst()) return
+            val localUri = cursor.getString(
+                cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_LOCAL_URI),
+            ) ?: return
+            val path = Uri.parse(localUri).path ?: return
+            val file = File(path)
+            if (file.isFile) {
+                preferences.edit().putString(KEY_LOCAL_PATH, file.absolutePath).apply()
+            }
         }
     }
 
@@ -289,14 +328,36 @@ internal class AppUpdateManager(private val context: Context) {
     )
 
     @Suppress("DEPRECATION")
-    private fun packageArchive(file: File): PackageInfo? =
-        context.packageManager.getPackageArchiveInfo(file.absolutePath, packageFlags())
+    private fun packageArchive(file: File): PackageInfo? {
+        // Prefer the PackageInfoFlags overload on API 33+; keep the int
+        // overload below for older devices.
+        val info = if (Build.VERSION.SDK_INT >= 33) {
+            context.packageManager.getPackageArchiveInfo(
+                file.absolutePath,
+                PackageManager.PackageInfoFlags.of(packageFlags().toLong()),
+            )
+        } else {
+            context.packageManager.getPackageArchiveInfo(file.absolutePath, packageFlags())
+        }
+        // Some platform builds leave these null for archive parses; later
+        // PackageManager calls may need an explicit on-disk path.
+        info?.applicationInfo?.let { applicationInfo ->
+            applicationInfo.sourceDir = file.absolutePath
+            applicationInfo.publicSourceDir = file.absolutePath
+        }
+        return info
+    }
 
     @Suppress("DEPRECATION")
-    private fun packageFlags(): Int = if (Build.VERSION.SDK_INT >= 28) {
-        PackageManager.GET_SIGNING_CERTIFICATES
-    } else {
-        PackageManager.GET_SIGNATURES
+    private fun packageFlags(): Int {
+        // getPackageArchiveInfo often leaves signingInfo null on API 28–29
+        // (and some OEM builds) when only GET_SIGNING_CERTIFICATES is set.
+        // Always request the legacy GET_SIGNATURES flag as a fallback source.
+        var flags = PackageManager.GET_SIGNATURES
+        if (Build.VERSION.SDK_INT >= 28) {
+            flags = flags or PackageManager.GET_SIGNING_CERTIFICATES
+        }
+        return flags
     }
 
     @Suppress("DEPRECATION")
@@ -305,9 +366,12 @@ internal class AppUpdateManager(private val context: Context) {
 
     @Suppress("DEPRECATION")
     private fun signatures(info: PackageInfo): Set<String> {
-        val certificates = if (Build.VERSION.SDK_INT >= 28) {
+        val fromSigningInfo = if (Build.VERSION.SDK_INT >= 28) {
             info.signingInfo?.apkContentsSigners?.map { it.toByteArray() }.orEmpty()
         } else {
+            emptyList()
+        }
+        val certificates = fromSigningInfo.ifEmpty {
             info.signatures?.map { it.toByteArray() }.orEmpty()
         }
         require(certificates.isNotEmpty()) { "APK has no signing certificate" }
@@ -393,7 +457,7 @@ internal class AppUpdateManager(private val context: Context) {
             NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(context.applicationInfo.icon)
                 .setContentTitle("AfterFrame 更新已就绪")
-                .setContentText("已通过版本、ABI、签名与 SHA-1 校验，点按继续安装")
+                .setContentText("已通过版本、ABI、签名与 SHA-1 校验，正在打开安装器")
                 .setAutoCancel(true)
                 .setContentIntent(pending)
                 .build(),

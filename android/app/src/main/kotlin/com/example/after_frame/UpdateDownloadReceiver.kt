@@ -9,9 +9,12 @@ class UpdateDownloadReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
         val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
+        if (id < 0L) return
         val pending = goAsync()
         Thread {
             try {
+                // DownloadManager is an external sender; the receiver must be
+                // exported. Only our persisted download id is accepted.
                 AppUpdateManager(context.applicationContext).handleDownloadComplete(id)
             } finally {
                 pending.finish()

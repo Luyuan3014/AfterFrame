@@ -42,6 +42,7 @@ class AppUpdateState {
     this.downloadedBytes = 0,
     this.totalBytes = 0,
     this.errorCode,
+    this.errorDetail,
   });
 
   factory AppUpdateState.fromMap(Map<Object?, Object?> map) => AppUpdateState(
@@ -55,6 +56,7 @@ class AppUpdateState {
     downloadedBytes: (map['downloadedBytes'] as num?)?.toInt() ?? 0,
     totalBytes: (map['totalBytes'] as num?)?.toInt() ?? 0,
     errorCode: map['errorCode'] as String?,
+    errorDetail: map['errorDetail'] as String?,
   );
 
   final AppUpdateStatus status;
@@ -67,6 +69,7 @@ class AppUpdateState {
   final int downloadedBytes;
   final int totalBytes;
   final String? errorCode;
+  final String? errorDetail;
 
   double? get progress =>
       totalBytes > 0 ? (downloadedBytes / totalBytes).clamp(0.0, 1.0) : null;

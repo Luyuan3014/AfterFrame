@@ -38,4 +38,19 @@ void main() {
     expect(state.status, AppUpdateStatus.idle);
     expect(state.progress, isNull);
   });
+
+  test('maps native verification failure details', () {
+    final state = AppUpdateState.fromMap({
+      'status': 'error',
+      'currentVersionName': '0.7.3',
+      'currentVersionCode': 2011,
+      'abi': 'arm64-v8a',
+      'errorCode': 'VERIFY_FAILED',
+      'errorDetail': 'APK has no signing certificate',
+    });
+
+    expect(state.status, AppUpdateStatus.error);
+    expect(state.errorCode, 'VERIFY_FAILED');
+    expect(state.errorDetail, 'APK has no signing certificate');
+  });
 }

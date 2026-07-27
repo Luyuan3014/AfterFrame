@@ -42,9 +42,12 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+        <!-- DownloadManager lives in another UID; exported must be true or
+             ACTION_DOWNLOAD_COMPLETE is dropped and verification never starts
+             unless the Flutter poller happens to be alive. -->
         <receiver
             android:name=".UpdateDownloadReceiver"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
             </intent-filter>

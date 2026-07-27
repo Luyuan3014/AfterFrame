@@ -42,10 +42,18 @@ class _AppUpdateCardState extends State<AppUpdateCard>
 
   Future<void> _refresh({required bool silent}) async {
     try {
+      final previous = _state?.status;
       final state = await widget.service.state();
       if (!mounted) return;
       setState(() => _state = state);
       _syncPolling(state);
+      final finishedDownload = previous == AppUpdateStatus.downloading ||
+          previous == AppUpdateStatus.verifying;
+      if (finishedDownload &&
+          state.status == AppUpdateStatus.ready &&
+          !_busy) {
+        await _install();
+      }
     } catch (_) {
       if (!silent && mounted) _message('updateCheckFailed');
     }
