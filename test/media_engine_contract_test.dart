@@ -65,6 +65,24 @@ void main() {
         [0, 0, .6, 1],
         [.61, 0, .39, 1],
       ],
+      sourceCropRects: const [
+        [.1, 0, .6, 1],
+        [.2, .1, .39, .8],
+      ],
+      collagePixelRects: const [
+        [0, 0, 518, 1536],
+        [527, 0, 337, 1536],
+      ],
+      sourceCropPixelRects: const [
+        [108, 0, 518, 1536],
+        [216, 192, 337, 1536],
+      ],
+      collageSourceSizes: const [
+        [1080, 1920],
+        [1080, 1920],
+      ],
+      canvasWidth: 864,
+      canvasHeight: 1536,
       format: 'mp4',
     );
 
@@ -82,6 +100,24 @@ void main() {
     expect(arguments['collageRects'], [
       [0, 0, .6, 1],
       [.61, 0, .39, 1],
+    ]);
+    expect(arguments['sourceCropRects'], [
+      [.1, 0, .6, 1],
+      [.2, .1, .39, .8],
+    ]);
+    expect(arguments['canvasWidth'], 864);
+    expect(arguments['canvasHeight'], 1536);
+    expect(arguments['collagePixelRects'], [
+      [0, 0, 518, 1536],
+      [527, 0, 337, 1536],
+    ]);
+    expect(arguments['sourceCropPixelRects'], [
+      [108, 0, 518, 1536],
+      [216, 192, 337, 1536],
+    ]);
+    expect(arguments['collageSourceSizes'], [
+      [1080, 1920],
+      [1080, 1920],
     ]);
   });
 

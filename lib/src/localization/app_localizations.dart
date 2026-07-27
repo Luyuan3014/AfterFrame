@@ -199,6 +199,8 @@ class AppLocalizations {
       'collageTrackHint': '点按裁剪，长按拖动排序；排版会根据素材比例自动优化。',
       'editCollageClip': '裁剪素材 {index}',
       'editCollageClipHint': '每段素材独立取景，最终按最短有效时长同步播放。',
+      'smartCropHint': '在画布中拖动当前画面，微调 Smart Crop 取景；素材保持 1:1 像素倍率。',
+      'resetSmartCrop': '恢复智能取景',
       'coverMoment': '封面瞬间',
       'chooseCover': '选择封面瞬间',
       'suggestedCovers': '时间候选',
@@ -359,6 +361,9 @@ class AppLocalizations {
       'editCollageClip': 'Trim clip {index}',
       'editCollageClipHint':
           'Each clip keeps its own range; playback syncs to the shortest active range.',
+      'smartCropHint':
+          'Drag the active frame on the canvas to refine Smart Crop. Source pixels remain at 1:1 scale.',
+      'resetSmartCrop': 'Reset Smart Crop',
       'coverMoment': 'COVER MOMENT',
       'chooseCover': 'Choose Cover Moment',
       'suggestedCovers': 'Time Suggestions',

@@ -62,6 +62,7 @@ class StudioCanvasPreview extends StatelessWidget {
                   showChrome: false,
                   playbackEnabled: active,
                   showPlaybackControl: false,
+                  interactive: !fullscreen,
                 ),
                 const DecoratedBox(
                   decoration: BoxDecoration(

@@ -13,6 +13,7 @@ class MotionCanvasExportService {
     MotionCanvasController canvas,
   ) async {
     final first = canvas.clips.first;
+    final plan = canvas.canvasPlan;
     final coverMs =
         first.trimStartMs + canvas.positionMs.clamp(0, first.durationMs);
     final coverPath = await engine.extractFrame(first.asset.uri, coverMs);
@@ -36,8 +37,22 @@ class MotionCanvasExportService {
           .map((clip) => clip.trimStartMs + canvas.durationMs)
           .toList(),
       motionTransition: 0,
-      collageRects: canvas.contentSlots
-          .map((slot) => slot.encoded)
+      canvasWidth: plan.canvas.width,
+      canvasHeight: plan.canvas.height,
+      collageRects: plan.frames
+          .map((frame) => frame.rect.normalized(plan.canvas))
+          .toList(growable: false),
+      sourceCropRects: plan.frames
+          .map((frame) => frame.crop.encoded)
+          .toList(growable: false),
+      collagePixelRects: plan.frames
+          .map((frame) => frame.rect.pixelEncoded)
+          .toList(growable: false),
+      sourceCropPixelRects: plan.frames
+          .map((frame) => frame.crop.pixelEncoded)
+          .toList(growable: false),
+      collageSourceSizes: plan.frames
+          .map((frame) => [frame.crop.sourceWidth, frame.crop.sourceHeight])
           .toList(growable: false),
       format: canvas.exportFormat.name,
     );

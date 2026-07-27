@@ -3,6 +3,7 @@ package com.example.after_frame
 import android.content.ContentValues
 import android.content.Intent
 import android.media.MediaScannerConnection
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -69,7 +70,9 @@ class ExportService(
     private fun packageAndPublish(call: MethodCall, mp4: File, work: File): Map<String, String> {
         val format = call.argument<String>("format") ?: "motionPhoto"
         require(format in setOf("motionPhoto", "mp4")) { "Media3 仅支持 Motion Photo 或 MP4 导出" }
-        val cover = File(call.argument<String>("coverPath")!!)
+        val requestedCover = File(call.argument<String>("coverPath")!!)
+        val isCollage = call.argument<List<String>>("collageUris").orEmpty().size > 1
+        val cover = if (isCollage) extractRenderedCover(call, mp4, work) else requestedCover
         require(cover.isFile && cover.length() > 0L) { "导出封面不存在" }
         val safeName = (call.argument<String>("name") ?: "memory")
             .substringBeforeLast('.')
@@ -93,6 +96,36 @@ class ExportService(
             persistentCover.delete()
             throw error
         }
+    }
+
+    private fun extractRenderedCover(call: MethodCall, mp4: File, work: File): File {
+        val startMs = call.argument<Number>("startMs")!!.toLong()
+        val endMs = call.argument<Number>("endMs")!!.toLong()
+        val coverMs = call.argument<Number>("coverMs")!!.toLong()
+        val speed = (call.argument<Number>("playbackSpeed")?.toDouble() ?: 1.0).coerceIn(.5, 2.0)
+        val presentationUs =
+            ((coverMs - startMs).coerceIn(0, endMs - startMs) / speed * 1_000).toLong()
+        val output = File(work, "canvas-cover.jpg")
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(mp4.absolutePath)
+            val frame = requireNotNull(
+                retriever.getFrameAtTime(presentationUs, MediaMetadataRetriever.OPTION_CLOSEST),
+            ) { "无法从 Canvas First 成片提取封面" }
+            try {
+                FileOutputStream(output).use { stream ->
+                    check(frame.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, stream)) {
+                        "无法编码 Canvas First 封面"
+                    }
+                }
+            } finally {
+                frame.recycle()
+            }
+        } finally {
+            retriever.release()
+        }
+        check(output.isFile && output.length() > 0L) { "Canvas First 封面为空" }
+        return output
     }
 
     private fun publishMotionPhoto(

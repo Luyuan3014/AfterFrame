@@ -215,6 +215,31 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
                   context.l10n.text('editCollageClipHint'),
                   style: const TextStyle(color: AfterFrameColors.muted),
                 ),
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(top: 2),
+                      child: Icon(
+                        Icons.crop_free_rounded,
+                        size: 16,
+                        color: AfterFrameColors.lime,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        context.l10n.text('smartCropHint'),
+                        style: const TextStyle(
+                          color: AfterFrameColors.muted,
+                          fontSize: 12,
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 18),
                 RangeSlider(
                   values: range,
@@ -238,6 +263,15 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
                   },
                 ),
                 const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () => _canvas.resetSmartCrop(index),
+                    icon: const Icon(Icons.center_focus_strong_rounded),
+                    label: Text(context.l10n.text('resetSmartCrop')),
+                  ),
+                ),
+                const SizedBox(height: 4),
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton(

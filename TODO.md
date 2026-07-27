@@ -23,6 +23,10 @@
 - [ ] 在 arm64-v8a、armeabi-v7a、x86_64 三类设备/模拟器分别验证下载与安装；至少覆盖断网、进程重启、错误 SHA-1、错误签名和低版本清单。
 
 ## 已完成
+- [x] 修复两路 720p 横屏素材误选 Film Strip 造成的大面积上下黑边和过宽中缝；自动布局改为外边缘闭合且默认间隔最多 4px。
+- [x] 为 Adaptive Canvas 增加未覆盖面积惩罚，禁止自动方案用装饰留白换取源像素保留率。
+- [x] 将 Frame/Smart Crop 升级为整数像素协议，并在 Media3 合成前执行零像素误差尺寸校验，避免边缘亚像素采样抖动。
+- [x] 在 Android 16 x86_64 模拟器用原问题的两段 1280×720 素材完成编辑、导出和循环播放复测，确认无外围黑边且 Frame 分隔边界稳定。
 
 - [x] 首页合并 Live 单帧/Live 拼图入口，统一有序选择 1～3 段素材并进入 AfterFrame Studio。
 - [x] 在 Studio 内完成模式切换；Live 拼图彻底删除布局、风格、转场、音乐工具，统一为单帧的预览、封面、时间轴、更多设置和生成层级。
@@ -30,12 +34,22 @@
 - [x] 使用 Media3 1.10.1 Transformer 输出 H.264/AAC MP4。
 - [x] 使用 Composition + VideoCompositorSettings 实现最多三路同步 Live 拼图。
 - [x] 保留每路独立裁切、统一变速和第一路主音轨；声音、循环、增强和变速交互与 Live 单帧一致。
-- [x] 按素材比例自动选择裁切损失最小的满版分栏；Flutter `BoxFit.cover` 与 Media3 `LAYOUT_SCALE_TO_FIT_WITH_CROP` 共用槽位并禁止拉伸。
+- [x] 将 Live 拼图重构为 Canvas First，统一画布像素尺寸、Frame 像素矩形和源空间 Smart Crop 窗口。
+- [x] 实现纵向时间流、横向时间流、Pinterest、网格和 Film Strip 的 Adaptive Canvas 候选评分，保持用户时间顺序。
+- [x] 建立 `crop pixels == frame pixels` 的 1:1 不变量；素材不足时缩小完整画布，不对单路素材执行 Fit/Fill/Stretch。
+- [x] 支持在编辑画布直接拖动微调 Smart Crop，并可恢复确定性的构图安全区焦点。
+- [x] 统一编辑预览、沉浸预览与导出使用同一 `AdaptiveCanvasPlan`；MethodChannel 冻结传递画布、Frame 和裁剪窗。
+- [x] Media3 拼图导出改用 `Crop` + 原尺寸 compositor 定位，移除 `LAYOUT_SCALE_TO_FIT_WITH_CROP`。
+- [x] 从最终拼图 MP4 抽取 Motion Photo/作品索引封面，保证导出后静态预览与合成画布一致。
 - [x] Live 单帧和 Live 拼图均支持全屏预览，覆盖沉浸式系统栏、显式关闭、返回键、下滑退出和系统 UI 恢复。
 - [x] 保留标准 Android Motion Photo 封装和聊天兼容 MP4 分享。
 - [x] 将导出格式聚焦为 Motion Photo 与 MP4。
 
 ## 下一步
+
+- [ ] 在 ARM64 真机使用横屏、竖屏、旋转元数据和不同分辨率的真实素材逐像素核对 Smart Crop 边界、Frame 定位及预览/导出一致性。
+- [ ] 增加 Media3 instrumentation fixture，读取导出 MP4 帧并验证画布尺寸、Frame 边界和 1:1 像素映射；覆盖 OEM 编码器尺寸回退。
+- [ ] 评估完全离线、非 AI 云服务的主体显著性/人脸安全区数据源；接入时只更新 `CropFocus`，不得改变 Canvas First 几何契约。
 
 - [ ] 用 Media3 CompositionPlayer 统一多路预览与导出 Composition，减少预览/成片偏差。
 - [ ] 若未来重新确认复杂转场为产品需求，再独立评估自定义 GL effect；当前 Studio 不展示转场入口。

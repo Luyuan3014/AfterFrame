@@ -15,8 +15,10 @@ class MotionCanvasController extends ChangeNotifier {
           asset: asset,
           trimStartMs: 0,
           trimEndMs: end,
-          focus: const CropFocus(),
-          subject: SubjectKind.landscape,
+          focus: smartCropFocusFor(asset),
+          subject: asset.aspectRatio < .82
+              ? SubjectKind.person
+              : SubjectKind.landscape,
         );
       });
 
@@ -36,10 +38,22 @@ class MotionCanvasController extends ChangeNotifier {
   double playbackSpeed = 1;
 
   AdaptiveCanvasPlan get canvasPlan => layout.planFor(
-    clips.map((clip) => clip.asset.aspectRatio).toList(growable: false),
+    clips
+        .map((clip) {
+          final rotated =
+              clip.asset.rotation == 90 || clip.asset.rotation == 270;
+          return CanvasSourceGeometry(
+            width: rotated ? clip.asset.height : clip.asset.width,
+            height: rotated ? clip.asset.width : clip.asset.height,
+            focusX: clip.focus.x,
+            focusY: clip.focus.y,
+            subjectConfidence: clip.focus.confidence,
+          );
+        })
+        .toList(growable: false),
   );
 
-  List<CanvasSlot> get contentSlots => canvasPlan.slots;
+  List<CanvasFrame> get frames => canvasPlan.frames;
 
   int get durationMs => clips
       .map((clip) => clip.durationMs)
@@ -50,6 +64,26 @@ class MotionCanvasController extends ChangeNotifier {
 
   void selectClip(int index) {
     activeClipIndex = index.clamp(0, clips.length - 1);
+    notifyListeners();
+  }
+
+  void moveCropFocus(int index, double deltaX, double deltaY) {
+    if (index < 0 || index >= clips.length) return;
+    final clip = clips[index];
+    clips[index] = clip.copyWith(
+      focus: clip.focus.copyWith(
+        x: (clip.focus.x + deltaX).clamp(0, 1),
+        y: (clip.focus.y + deltaY).clamp(0, 1),
+        confidence: 1,
+      ),
+    );
+    notifyListeners();
+  }
+
+  void resetSmartCrop(int index) {
+    if (index < 0 || index >= clips.length) return;
+    final clip = clips[index];
+    clips[index] = clip.copyWith(focus: smartCropFocusFor(clip.asset));
     notifyListeners();
   }
 

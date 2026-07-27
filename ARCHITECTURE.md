@@ -47,7 +47,7 @@ Android MethodChannel
 ├─ Media3RenderEngine
 │  ├─ 单视频 EditedMediaItem
 │  ├─ 多视频 Composition
-│  ├─ 自动满版分栏和 1080×1920 布局
+│  ├─ Canvas First：Adaptive Canvas + Smart Crop 1:1 像素布局
 │  └─ H.264/AAC MP4
 └─ ExportService
    ├─ Motion Photo XMP + trailing MP4
@@ -64,11 +64,17 @@ Android MethodChannel
 - 选择 1 段素材时拼图模式不可用；选择 2–3 段时默认进入拼图，并允许在 Studio 内无损切回单帧。
 - 拼图支持 2–3 路视频，每一路保留独立裁切区间；公共时长取最短有效区间，防止某路提前结束后出现空帧。
 - “布局 / 风格 / 转场 / 音乐”不是当前产品能力，也不在 UI、控制器或导出协议中保留伪入口。声音、循环、增强和变速使用与 Live 单帧相同的设置语义；需要音频时只添加第一路主音轨序列。
-- 输出固定为竖屏 1080×1920；Flutter 根据素材宽高比，对横分栏、竖分栏、左主画面和上主画面候选计算等比铺满时的裁切损失，自动选择损失最小的方案，用户无需选择布局。
-- 每个槽位使用 0–1 归一化 `x/y/width/height` 传给 Android。Flutter 预览使用 `BoxFit.cover`，Media3 使用 `LAYOUT_SCALE_TO_FIT_WITH_CROP`：两端都等比铺满、允许必要裁边、禁止非等比拉伸。
+- Live 拼图采用 Canvas First。`MotionCanvasLayout` 的产物是 `AdaptiveCanvasPlan`：画布像素尺寸、按时间顺序排列的 Frame 像素矩形，以及每路素材在源空间中的 Smart Crop 窗口。布局不得返回任何逐素材缩放参数。
+- Adaptive Canvas 以 9:16 目标比例和最多三路素材为输入，在纵向时间流、横向时间流、Pinterest 和网格候选中评分。评分包含素材保留率、各 Frame 保留率差异、有效画布分辨率、未覆盖画布面积和版式节奏；素材顺序始终等于用户选择/重排后的时间顺序。带装饰性上下留白的 Film Strip 不参与自动候选，避免为了源像素保留率生成大片黑边。
+- 自动布局必须满足外边缘闭合：首行/首列贴画布起边，末行/末列贴画布终边；默认 Frame 间隔为 4 个输出像素，自动方案不得产生额外外围黑边。
+- 1:1 不变量定义在导出画布像素空间：`cropPixelWidth == framePixelWidth` 且 `cropPixelHeight == framePixelHeight`。若某个 Frame 大于源素材，系统等比例缩小整张画布及全部 Frame，绝不单独放大、缩小或拉伸该素材。
+- Smart Crop 只改变源空间裁剪窗的 `left/top`。默认焦点采用可解释的构图安全区启发式（人像略偏上、其他居中），用户可在编辑画布拖动当前 Frame 微调并随时恢复默认焦点。人脸/显著性模型仍属于后续可替换的数据源，不影响现有几何协议。
+- Flutter 预览先按源像素尺寸摆放视频，再用 Frame 裁剪，最后只为了屏幕显示而缩放完整画布。沉浸预览复用同一 `AdaptiveCanvasPlan`，因此不会重新选择布局或推导裁剪。
+- MethodChannel 冻结传递 `canvasWidth/canvasHeight`、整数 `collagePixelRects`、整数 `sourceCropPixelRects` 和 `collageSourceSizes`；归一化矩形仅作为旧协议兼容字段。Media3 对每路素材应用 `Crop`，裁剪结果必须与 Frame 像素宽高完全相等；`VideoCompositorSettings` 只设置输出画布和整数像素 Frame 中心，不使用 `Presentation`、Fit、Fill 或 Stretch。
+- 拼图完成后，`ExportService` 从最终 MP4 的封面时间点抽取静态 JPEG，再用于 Motion Photo 主图和作品索引；禁止拿第一路源素材封面代替合成画布。
 - Live 单帧和 Live 拼图共用 `FullscreenPreview` 路由规范：280ms 淡入缩放、`immersiveSticky` 系统栏、右上角关闭、系统返回和向下拖拽退出；路由销毁时恢复 `edgeToEdge`，编辑页播放器在全屏期间暂停以避免双音轨。
 - 所有素材使用相同目标时长和变速，避免序列提前结束后出现空帧。
-- AI 主体识别、智能裁切以及跨轨复杂转场均明确延期，不在当前 UI 中伪装为已实现能力。
+- AI 主体识别和跨轨复杂转场明确延期。当前 Smart Crop 是确定性的构图安全区加用户微调，不宣称已经具备人脸或语义主体检测能力。
 
 ## 输出
 

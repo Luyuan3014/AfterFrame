@@ -15,6 +15,7 @@ class MotionCanvasRenderer extends StatefulWidget {
     this.showChrome = true,
     this.playbackEnabled = true,
     this.showPlaybackControl = true,
+    this.interactive = false,
   });
 
   final MotionCanvasController controller;
@@ -22,6 +23,7 @@ class MotionCanvasRenderer extends StatefulWidget {
   final bool showChrome;
   final bool playbackEnabled;
   final bool showPlaybackControl;
+  final bool interactive;
 
   @override
   State<MotionCanvasRenderer> createState() => _MotionCanvasRendererState();
@@ -203,14 +205,15 @@ class _MotionCanvasRendererState extends State<MotionCanvasRenderer> {
             children: [
               LayoutBuilder(
                 builder: (context, constraints) {
-                  final contentSlots = canvas.contentSlots;
+                  final plan = canvas.canvasPlan;
                   return Stack(
                     children: [
-                      for (var i = 0; i < contentSlots.length; i++)
+                      for (var i = 0; i < plan.frames.length; i++)
                         _positionedClip(
-                          contentSlots[i],
+                          plan.frames[i],
+                          plan.canvas,
                           constraints,
-                          _ClipSurface(player: _players[canvas.clips[i].id]),
+                          i,
                         ),
                     ],
                   );
@@ -230,42 +233,113 @@ class _MotionCanvasRendererState extends State<MotionCanvasRenderer> {
   }
 
   Positioned _positionedClip(
-    CanvasSlot slot,
+    CanvasFrame frame,
+    CanvasPixelSize canvasSize,
     BoxConstraints constraints,
-    Widget child,
+    int index,
   ) => Positioned(
-    left: slot.x * constraints.maxWidth,
-    top: slot.y * constraints.maxHeight,
-    width: slot.width * constraints.maxWidth,
-    height: slot.height * constraints.maxHeight,
-    child: child,
+    left: frame.rect.x / canvasSize.width * constraints.maxWidth,
+    top: frame.rect.y / canvasSize.height * constraints.maxHeight,
+    width: frame.rect.width / canvasSize.width * constraints.maxWidth,
+    height: frame.rect.height / canvasSize.height * constraints.maxHeight,
+    child: _ClipSurface(
+      player: _players[widget.controller.clips[index].id],
+      frame: frame,
+      sourceWidth: _orientedWidth(index),
+      sourceHeight: _orientedHeight(index),
+      selected:
+          widget.interactive && widget.controller.activeClipIndex == index,
+      onTap: widget.interactive
+          ? () => widget.controller.selectClip(index)
+          : null,
+      onPanUpdate: widget.interactive
+          ? (details, scale) => widget.controller.moveCropFocus(
+              index,
+              details.delta.dx / (_orientedWidth(index) * scale),
+              details.delta.dy / (_orientedHeight(index) * scale),
+            )
+          : null,
+    ),
   );
+
+  int _orientedWidth(int index) {
+    final asset = widget.controller.clips[index].asset;
+    final width = asset.rotation == 90 || asset.rotation == 270
+        ? asset.height
+        : asset.width;
+    return width.clamp(2, 1 << 30);
+  }
+
+  int _orientedHeight(int index) {
+    final asset = widget.controller.clips[index].asset;
+    final height = asset.rotation == 90 || asset.rotation == 270
+        ? asset.width
+        : asset.height;
+    return height.clamp(2, 1 << 30);
+  }
 }
 
 class _ClipSurface extends StatelessWidget {
-  const _ClipSurface({required this.player});
+  const _ClipSurface({
+    required this.player,
+    required this.frame,
+    required this.sourceWidth,
+    required this.sourceHeight,
+    required this.selected,
+    this.onTap,
+    this.onPanUpdate,
+  });
 
   final VideoPlayerController? player;
+  final CanvasFrame frame;
+  final int sourceWidth;
+  final int sourceHeight;
+  final bool selected;
+  final VoidCallback? onTap;
+  final void Function(DragUpdateDetails details, double displayScale)?
+  onPanUpdate;
 
   @override
   Widget build(BuildContext context) {
     final ready = player?.value.isInitialized ?? false;
     return DecoratedBox(
+      position: DecorationPosition.foreground,
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [Colors.transparent, Colors.black.withValues(alpha: .08)],
         ),
+        border: selected
+            ? Border.all(color: const Color(0xFFB8FF5B), width: 1.5)
+            : null,
       ),
       child: ready
-          ? ClipRect(
-              child: FittedBox(
-                fit: BoxFit.cover,
-                child: SizedBox(
-                  width: player!.value.size.width,
-                  height: player!.value.size.height,
-                  child: VideoPlayer(player!),
-                ),
-              ),
+          ? LayoutBuilder(
+              builder: (context, constraints) {
+                final scale = constraints.maxWidth / frame.rect.width;
+                final cropLeft = frame.crop.left * sourceWidth * scale;
+                final cropTop = frame.crop.top * sourceHeight * scale;
+                return GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onTap,
+                  onPanUpdate: onPanUpdate == null
+                      ? null
+                      : (details) => onPanUpdate!(details, scale),
+                  child: ClipRect(
+                    child: Stack(
+                      clipBehavior: Clip.hardEdge,
+                      children: [
+                        Positioned(
+                          left: -cropLeft,
+                          top: -cropTop,
+                          width: sourceWidth * scale,
+                          height: sourceHeight * scale,
+                          child: VideoPlayer(player!),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
             )
           : const ColoredBox(
               color: Color(0xFF202126),

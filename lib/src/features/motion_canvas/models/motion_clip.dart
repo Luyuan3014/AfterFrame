@@ -16,6 +16,17 @@ class CropFocus {
   );
 }
 
+CropFocus smartCropFocusFor(MediaAsset asset) {
+  final portrait = asset.aspectRatio < .82;
+  return CropFocus(
+    x: .5,
+    // A conservative upper-third bias protects faces in portrait captures;
+    // it is deterministic and remains replaceable by on-device saliency data.
+    y: portrait ? .43 : .5,
+    confidence: portrait ? .35 : .2,
+  );
+}
+
 class MotionClip {
   const MotionClip({
     required this.id,

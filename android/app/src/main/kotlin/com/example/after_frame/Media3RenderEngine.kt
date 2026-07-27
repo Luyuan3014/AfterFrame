@@ -15,6 +15,7 @@ import androidx.media3.common.VideoCompositorSettings
 import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.GaussianBlur
+import androidx.media3.effect.Crop
 import androidx.media3.effect.HslAdjustment
 import androidx.media3.effect.Presentation
 import androidx.media3.effect.RgbAdjustment
@@ -31,6 +32,7 @@ import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.roundToInt
 
 /** Media3-only creation engine. It renders MP4 bytes but never publishes media. */
 @UnstableApi
@@ -116,6 +118,7 @@ class Media3RenderEngine(
                 removeAudio = !request.keepAudio,
                 removeVideo = false,
                 slot = null,
+                crop = null,
             )
             val sequence = if (request.keepAudio && hasAudio(source.uri)) {
                 EditedMediaItemSequence.withAudioAndVideoFrom(listOf(item))
@@ -137,6 +140,7 @@ class Media3RenderEngine(
                         removeAudio = true,
                         removeVideo = false,
                         slot = slots[index],
+                        crop = request.crops.getOrNull(index),
                     ),
                 ),
             )
@@ -152,13 +156,16 @@ class Media3RenderEngine(
                         removeAudio = false,
                         removeVideo = true,
                         slot = null,
+                        crop = null,
                     ),
                 ),
             )
         }
 
         return Composition.Builder(sequences)
-            .setVideoCompositorSettings(CollageCompositor(slots))
+            .setVideoCompositorSettings(
+                CollageCompositor(slots, request.canvasWidth, request.canvasHeight),
+            )
             .build()
     }
 
@@ -168,6 +175,7 @@ class Media3RenderEngine(
         removeAudio: Boolean,
         removeVideo: Boolean,
         slot: Slot?,
+        crop: CropWindow?,
     ): EditedMediaItem {
         val mediaItem = MediaItem.Builder()
             .setUri(source.uri)
@@ -184,19 +192,23 @@ class Media3RenderEngine(
             .setFrameRate(30)
         if (request.speed != 1f) builder.setSpeed(ConstantSpeedProvider(request.speed))
         if (!removeVideo) {
-            builder.setEffects(Effects(emptyList(), videoEffects(request, slot)))
+            builder.setEffects(Effects(emptyList(), videoEffects(request, slot, crop)))
         }
         return builder.build()
     }
 
-    private fun videoEffects(request: RenderRequest, slot: Slot?): List<Effect> {
+    private fun videoEffects(
+        request: RenderRequest,
+        slot: Slot?,
+        crop: CropWindow?,
+    ): List<Effect> {
         val effects = mutableListOf<Effect>()
-        if (slot != null) {
-            effects += Presentation.createForWidthAndHeight(
-                slot.width,
-                slot.height,
-                Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP,
-            )
+        if (slot != null && crop != null) {
+            val left = crop.left * 2f - 1f
+            val right = (crop.left + crop.width) * 2f - 1f
+            val top = 1f - crop.top * 2f
+            val bottom = 1f - (crop.top + crop.height) * 2f
+            effects += Crop(left, right, bottom, top)
         } else {
             effects += Presentation.createForShortSide(1080)
         }
@@ -260,6 +272,13 @@ class Media3RenderEngine(
         val height: Int,
     )
 
+    private data class CropWindow(
+        val left: Float,
+        val top: Float,
+        val width: Float,
+        val height: Float,
+    )
+
     private data class RenderRequest(
         val sources: List<Source>,
         val speed: Float,
@@ -269,6 +288,9 @@ class Media3RenderEngine(
         val audioSourceIndex: Int,
         val transition: Int,
         val slots: List<Slot>,
+        val crops: List<CropWindow>,
+        val canvasWidth: Int,
+        val canvasHeight: Int,
     ) {
         val canOptimizeTrim: Boolean
             get() = sources.size == 1 && speed == 1f && !enhancement && transition == 0
@@ -283,6 +305,16 @@ class Media3RenderEngine(
                 val starts = call.argument<List<Number>>("collageStartMs").orEmpty()
                 val ends = call.argument<List<Number>>("collageEndMs").orEmpty()
                 val encodedRects = call.argument<List<*>>("collageRects").orEmpty()
+                val encodedCrops = call.argument<List<*>>("sourceCropRects").orEmpty()
+                val encodedPixelRects = call.argument<List<*>>("collagePixelRects").orEmpty()
+                val encodedCropPixels = call.argument<List<*>>("sourceCropPixelRects").orEmpty()
+                val encodedSourceSizes = call.argument<List<*>>("collageSourceSizes").orEmpty()
+                val canvasWidth = evenDimension(
+                    (call.argument<Number>("canvasWidth")?.toInt() ?: 1080).coerceIn(2, 2160),
+                )
+                val canvasHeight = evenDimension(
+                    (call.argument<Number>("canvasHeight")?.toInt() ?: 1920).coerceIn(2, 3840),
+                )
                 val sources = uris.mapIndexed { index, uri ->
                     val start = starts.getOrNull(index)?.toLong() ?: defaultStart
                     val end = ends.getOrNull(index)?.toLong() ?: defaultEnd
@@ -293,7 +325,20 @@ class Media3RenderEngine(
                         endMs = end,
                     )
                 }
-                val customSlots = encodedRects.take(sources.size).mapNotNull { encoded ->
+                val pixelSlots = encodedPixelRects.take(sources.size).mapNotNull { encoded ->
+                    val values = encoded as? List<*> ?: return@mapNotNull null
+                    if (values.size < 4) return@mapNotNull null
+                    val left = (values[0] as? Number)?.toInt() ?: return@mapNotNull null
+                    val top = (values[1] as? Number)?.toInt() ?: return@mapNotNull null
+                    val width = (values[2] as? Number)?.toInt() ?: return@mapNotNull null
+                    val height = (values[3] as? Number)?.toInt() ?: return@mapNotNull null
+                    if (
+                        left < 0 || top < 0 || width <= 0 || height <= 0 ||
+                        left + width > canvasWidth || top + height > canvasHeight
+                    ) return@mapNotNull null
+                    Slot(left, top, width, height)
+                }.takeIf { it.size == sources.size }.orEmpty()
+                val normalizedSlots = encodedRects.take(sources.size).mapNotNull { encoded ->
                     val values = encoded as? List<*> ?: return@mapNotNull null
                     if (values.size < 4) return@mapNotNull null
                     val x = (values[0] as? Number)?.toDouble() ?: return@mapNotNull null
@@ -301,10 +346,10 @@ class Media3RenderEngine(
                     val width = (values[2] as? Number)?.toDouble() ?: return@mapNotNull null
                     val height = (values[3] as? Number)?.toDouble() ?: return@mapNotNull null
                     if (width <= 0.0 || height <= 0.0) return@mapNotNull null
-                    val left = (x.coerceIn(0.0, 1.0) * 1080).toInt()
-                    val top = (y.coerceIn(0.0, 1.0) * 1920).toInt()
-                    val right = ((x + width).coerceIn(0.0, 1.0) * 1080).toInt()
-                    val bottom = ((y + height).coerceIn(0.0, 1.0) * 1920).toInt()
+                    val left = (x.coerceIn(0.0, 1.0) * canvasWidth).roundToInt()
+                    val top = (y.coerceIn(0.0, 1.0) * canvasHeight).roundToInt()
+                    val right = ((x + width).coerceIn(0.0, 1.0) * canvasWidth).roundToInt()
+                    val bottom = ((y + height).coerceIn(0.0, 1.0) * canvasHeight).roundToInt()
                     Slot(
                         left,
                         top,
@@ -312,6 +357,58 @@ class Media3RenderEngine(
                         (bottom - top).coerceAtLeast(1),
                     )
                 }.takeIf { it.size == sources.size }.orEmpty()
+                val customSlots = pixelSlots.ifEmpty { normalizedSlots }
+                val pixelCrops = encodedCropPixels.take(sources.size).mapIndexedNotNull { index, encoded ->
+                    val values = encoded as? List<*> ?: return@mapIndexedNotNull null
+                    val sizeValues = encodedSourceSizes.getOrNull(index) as? List<*>
+                        ?: return@mapIndexedNotNull null
+                    if (values.size < 4 || sizeValues.size < 2) return@mapIndexedNotNull null
+                    val left = (values[0] as? Number)?.toInt() ?: return@mapIndexedNotNull null
+                    val top = (values[1] as? Number)?.toInt() ?: return@mapIndexedNotNull null
+                    val width = (values[2] as? Number)?.toInt() ?: return@mapIndexedNotNull null
+                    val height = (values[3] as? Number)?.toInt() ?: return@mapIndexedNotNull null
+                    val sourceWidth = (sizeValues[0] as? Number)?.toInt()
+                        ?: return@mapIndexedNotNull null
+                    val sourceHeight = (sizeValues[1] as? Number)?.toInt()
+                        ?: return@mapIndexedNotNull null
+                    val slot = customSlots.getOrNull(index) ?: return@mapIndexedNotNull null
+                    if (
+                        left < 0 || top < 0 || width != slot.width || height != slot.height ||
+                        left + width > sourceWidth || top + height > sourceHeight
+                    ) return@mapIndexedNotNull null
+                    CropWindow(
+                        left = left.toFloat() / sourceWidth,
+                        top = top.toFloat() / sourceHeight,
+                        width = width.toFloat() / sourceWidth,
+                        height = height.toFloat() / sourceHeight,
+                    )
+                }.takeIf { it.size == sources.size }.orEmpty()
+                val normalizedCrops = encodedCrops.take(sources.size).mapNotNull { encoded ->
+                    val values = encoded as? List<*> ?: return@mapNotNull null
+                    if (values.size < 4) return@mapNotNull null
+                    val left = (values[0] as? Number)?.toFloat() ?: return@mapNotNull null
+                    val top = (values[1] as? Number)?.toFloat() ?: return@mapNotNull null
+                    val width = (values[2] as? Number)?.toFloat() ?: return@mapNotNull null
+                    val height = (values[3] as? Number)?.toFloat() ?: return@mapNotNull null
+                    if (width <= 0f || height <= 0f) return@mapNotNull null
+                    val safeLeft = left.coerceIn(0f, 1f)
+                    val safeTop = top.coerceIn(0f, 1f)
+                    CropWindow(
+                        left = safeLeft,
+                        top = safeTop,
+                        width = width.coerceIn(0f, 1f - safeLeft),
+                        height = height.coerceIn(0f, 1f - safeTop),
+                    )
+                }.takeIf { it.size == sources.size }.orEmpty()
+                val customCrops = pixelCrops.ifEmpty { normalizedCrops }
+                if (sources.size > 1) {
+                    require(customSlots.size == sources.size) {
+                        "Canvas First Frame 像素矩形缺失或越界"
+                    }
+                    require(customCrops.size == sources.size) {
+                        "Canvas First Smart Crop 像素矩形缺失或与 Frame 不一致"
+                    }
+                }
                 return RenderRequest(
                     sources = sources,
                     speed = (call.argument<Number>("playbackSpeed")?.toFloat() ?: 1f)
@@ -323,8 +420,13 @@ class Media3RenderEngine(
                         .coerceIn(0, sources.lastIndex),
                     transition = call.argument<Number>("motionTransition")?.toInt() ?: 0,
                     slots = customSlots,
+                    crops = customCrops,
+                    canvasWidth = canvasWidth,
+                    canvasHeight = canvasHeight,
                 )
             }
+
+            private fun evenDimension(value: Int): Int = if (value % 2 == 0) value else value - 1
         }
     }
 
@@ -334,13 +436,29 @@ class Media3RenderEngine(
         override fun getNextSpeedChangeTimeUs(timeUs: Long): Long = C.TIME_UNSET
     }
 
-    private class CollageCompositor(private val slots: List<Slot>) : VideoCompositorSettings {
-        override fun getOutputSize(inputSizes: List<Size>): Size = Size(1080, 1920)
+    private class CollageCompositor(
+        private val slots: List<Slot>,
+        private val canvasWidth: Int,
+        private val canvasHeight: Int,
+    ) : VideoCompositorSettings {
+        override fun getOutputSize(inputSizes: List<Size>): Size {
+            require(inputSizes.size == slots.size) { "裁剪结果数量与 Frame 数量不一致" }
+            inputSizes.forEachIndexed { index, input ->
+                val slot = slots[index]
+                require(
+                    input.width == slot.width && input.height == slot.height,
+                ) {
+                    "Canvas First 1:1 校验失败：素材 ${index + 1} 裁剪后 " +
+                        "${input.width}x${input.height}，Frame 为 ${slot.width}x${slot.height}"
+                }
+            }
+            return Size(canvasWidth, canvasHeight)
+        }
 
         override fun getOverlaySettings(inputId: Int, presentationTimeUs: Long): OverlaySettings {
             val slot = slots[inputId.coerceIn(0, slots.lastIndex)]
-            val centerX = (slot.x + slot.width / 2f) / 1080f * 2f - 1f
-            val centerY = 1f - (slot.y + slot.height / 2f) / 1920f * 2f
+            val centerX = (slot.x + slot.width / 2f) / canvasWidth * 2f - 1f
+            val centerY = 1f - (slot.y + slot.height / 2f) / canvasHeight * 2f
             return StaticOverlaySettings.Builder()
                 .setOverlayFrameAnchor(0f, 0f)
                 .setBackgroundFrameAnchor(centerX, centerY)

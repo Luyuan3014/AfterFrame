@@ -72,19 +72,34 @@ void main() {
   });
 
   test(
-    'adaptive layout minimizes cover crop and fills the portrait canvas',
+    'adaptive canvas chooses a balanced frame family without source scaling',
     () {
       const layout = MotionCanvasLayout();
-      final widePlan = layout.planFor(const [16 / 9, 16 / 9]);
-      final mixedPlan = layout.planFor(const [9 / 16, 16 / 9, 1]);
+      final widePlan = layout.planFor(const [
+        CanvasSourceGeometry(width: 1920, height: 1080),
+        CanvasSourceGeometry(width: 1920, height: 1080),
+      ]);
+      final mixedPlan = layout.planFor(const [
+        CanvasSourceGeometry(width: 1080, height: 1920),
+        CanvasSourceGeometry(width: 1920, height: 1080),
+        CanvasSourceGeometry(width: 1080, height: 1080),
+      ]);
 
-      expect(widePlan.kind, AdaptiveLayoutKind.splitHorizontal);
-      expect(mixedPlan.slots, hasLength(3));
-      expect(mixedPlan.slots.first.x, 0);
-      expect(
-        mixedPlan.slots.last.y + mixedPlan.slots.last.height,
-        closeTo(1, .001),
-      );
+      expect(widePlan.kind, AdaptiveLayoutKind.verticalTimeFlow);
+      expect(mixedPlan.frames, hasLength(3));
+      for (var index = 0; index < mixedPlan.frames.length; index++) {
+        final frame = mixedPlan.frames[index];
+        final source = const [
+          CanvasSourceGeometry(width: 1080, height: 1920),
+          CanvasSourceGeometry(width: 1920, height: 1080),
+          CanvasSourceGeometry(width: 1080, height: 1080),
+        ][index];
+        expect(frame.crop.width * source.width, closeTo(frame.rect.width, .01));
+        expect(
+          frame.crop.height * source.height,
+          closeTo(frame.rect.height, .01),
+        );
+      }
     },
   );
 
@@ -94,29 +109,73 @@ void main() {
     );
     addTearDown(controller.dispose);
 
-    expect(controller.canvasPlan.kind, AdaptiveLayoutKind.splitHorizontal);
-    for (final slot in controller.contentSlots) {
-      expect(slot.width, 1);
-      expect(slot.height, closeTo(.496, .001));
+    expect(controller.canvasPlan.kind, AdaptiveLayoutKind.verticalTimeFlow);
+    for (final frame in controller.frames) {
+      expect(frame.rect.width, controller.canvasPlan.canvas.width);
+      expect(frame.rect.height, lessThanOrEqualTo(1080));
+      expect(
+        frame.crop.width * landscape.width,
+        closeTo(frame.rect.width, .01),
+      );
+      expect(
+        frame.crop.height * landscape.height,
+        closeTo(frame.rect.height, .01),
+      );
     }
   });
 
-  test('render slots cover the complete canvas without outer gutters', () {
+  test('720p landscape pair never selects decorative Film Strip gutters', () {
+    const hdLandscape = MediaAsset(
+      uri: 'content://video/hd-landscape',
+      name: 'hd-landscape.mp4',
+      durationMs: 5000,
+      width: 1280,
+      height: 720,
+      rotation: 0,
+    );
+    final controller = MotionCanvasController(
+      assets: const [hdLandscape, hdLandscape],
+    );
+    addTearDown(controller.dispose);
+
+    final plan = controller.canvasPlan;
+    expect(plan.kind, AdaptiveLayoutKind.verticalTimeFlow);
+    expect(plan.frames.first.rect.y, 0);
+    expect(
+      plan.frames.last.rect.y + plan.frames.last.rect.height,
+      plan.canvas.height,
+    );
+    final uncoveredPixels =
+        plan.canvas.width * plan.canvas.height -
+        plan.frames.fold<double>(
+          0,
+          (sum, frame) => sum + frame.rect.width * frame.rect.height,
+        );
+    expect(
+      uncoveredPixels / (plan.canvas.width * plan.canvas.height),
+      lessThan(.01),
+    );
+    expect(
+      plan.frames.last.rect.y -
+          (plan.frames.first.rect.y + plan.frames.first.rect.height),
+      lessThanOrEqualTo(4),
+    );
+  });
+
+  test('manual Smart Crop focus is clamped and changes the crop window', () {
     final controller = MotionCanvasController(
       assets: const [landscape, portrait, square],
     );
     addTearDown(controller.dispose);
 
-    final slots = controller.contentSlots;
-    expect(slots, hasLength(3));
-    expect(slots.any((slot) => slot.x == 0 && slot.y == 0), isTrue);
-    expect(
-      slots.any(
-        (slot) =>
-            (slot.x + slot.width - 1).abs() < .001 ||
-            (slot.y + slot.height - 1).abs() < .001,
-      ),
-      isTrue,
-    );
+    final before = controller.frames.first.crop.left;
+    controller.moveCropFocus(0, 10, -10);
+    expect(controller.activeClip.focus.x, 1);
+    expect(controller.activeClip.focus.y, 0);
+    expect(controller.frames.first.crop.left, greaterThanOrEqualTo(before));
+    expect(controller.frames.first.crop.leftPixels, isA<int>());
+    controller.resetSmartCrop(0);
+    expect(controller.activeClip.focus.x, .5);
+    expect(controller.activeClip.focus.confidence, lessThan(1));
   });
 }

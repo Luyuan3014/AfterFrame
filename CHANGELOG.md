@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased - 2026-07-27
+
+- 修复两路 720p 横屏素材错误选择 Film Strip、导致预览和导出出现大面积上下黑边与过宽中缝的问题：装饰性 Film Strip 不再参与自动候选，所有自动布局必须首格贴画布起边、末格贴画布终边，默认分隔缩小到最多 4px。
+- Adaptive Canvas 评分新增未覆盖画布面积惩罚，禁止以“多保留源像素”为由牺牲成片占比；两路横屏素材现在使用铺满画布的纵向时间流。
+- Frame、Smart Crop 起点和裁剪尺寸全部量化为整数像素；导出协议新增 `collagePixelRects`、`sourceCropPixelRects` 和 `collageSourceSizes`，原生层优先消费整数数据并要求裁剪纹理与 Frame 尺寸完全一致，不再容忍 1px 浮点误差，消除上下边缘抖动风险。
+- 将 Live 拼图完整重构为 Canvas First：布局只生成画布像素尺寸与 Frame 像素矩形，不再要求素材适配槽位；Adaptive Canvas 会在纵向时间流、横向时间流、Pinterest 和网格候选中综合裁剪保留率、画面平衡、输出分辨率与画布覆盖率选择排版。
+- 建立严格的 1:1 像素契约：每个 Smart Crop 窗口的像素宽高必须与目标 Frame 完全一致，素材本身不执行 Fit、Fill、Stretch 或逐素材缩放；素材尺寸不足时缩小整张画布，而不是缩放单个素材。
+- Flutter 编辑预览改为先在源空间应用 Smart Crop，再仅缩放最终整张画布用于屏幕显示；编辑页可选择 Frame、直接拖动微调取景，并可恢复基于构图安全区的智能初始焦点。
+- 导出协议新增 `canvasWidth`、`canvasHeight` 和 `sourceCropRects`。Media3 1.10.1 原生层移除拼图素材的 `LAYOUT_SCALE_TO_FIT_WITH_CROP`，改用 `Crop` 保留裁剪后的原始像素尺寸，再由 `VideoCompositorSettings` 按 Frame 中心定位。
+- 编辑器、沉浸预览和导出共享同一份 `AdaptiveCanvasPlan`；归一化 Frame 与 Smart Crop 参数在冻结导出时一并传入 Android，避免各层重复推导几何。
+- Live 拼图的 Motion Photo 静态封面和作品索引封面改为从最终合成 MP4 的同一时间点抽帧，不再错误沿用第一路素材封面。
+- 增加 Canvas First 几何、Smart Crop 边界与 MethodChannel 新协议测试；`flutter analyze --no-pub`、Live 拼图相关 Flutter 测试和 `:app:compileDebugKotlin` 均通过。
+- Android 16 x86_64 模拟器使用原问题中的两段 1280×720 昆虫视频完成实机链路复测：编辑预览无外围黑边、分隔线保持窄且固定，Media3 Motion Photo/MP4 导出成功，循环播放时上下 Frame 边界保持稳定。
+
 ## 0.7.2 - 2026-07-26
 
 - 重构首页创作入口：不再提前拆分 Live 单帧与 Live 拼图，统一从素材选择进入 `AfterFrame Studio`，制作模式只在 Studio 内决定。
