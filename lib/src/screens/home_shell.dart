@@ -227,16 +227,13 @@ class _Discover extends StatelessWidget {
       children: [
         Row(
           children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: AfterFrameColors.lime,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(
-                Icons.motion_photos_on_rounded,
-                color: AfterFrameColors.ink,
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.asset(
+                'assets/branding/logo.png',
+                width: 38,
+                height: 38,
+                fit: BoxFit.cover,
               ),
             ),
             const SizedBox(width: 11),
