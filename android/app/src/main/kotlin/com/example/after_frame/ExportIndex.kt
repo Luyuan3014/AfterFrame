@@ -1,5 +1,6 @@
 package com.example.after_frame
 
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
@@ -26,6 +27,53 @@ class ExportIndex(private val context: Context) :
         val deleting: Boolean,
     )
 
+    /**
+     * Stable identity for one exported Motion Photo.
+     *
+     * Export writes `content://media/external_primary/...` while MediaStore
+     * recovery historically built `content://media/external/...`. Both point at
+     * the same `_ID`, so identity must ignore that volume alias (and fall back
+     * to displayName when the URI is a legacy file:// path).
+     */
+    private fun workIdentity(liveUri: String, displayName: String): String {
+        mediaStoreId(liveUri)?.let { return "id:$it" }
+        return "name:${displayName.trim()}"
+    }
+
+    private fun mediaStoreId(liveUri: String): Long? {
+        val uri = runCatching { Uri.parse(liveUri) }.getOrNull() ?: return null
+        if (uri.scheme != "content") return null
+        val id = uri.lastPathSegment?.toLongOrNull() ?: return null
+        val path = uri.path.orEmpty()
+        // Only treat classic MediaStore image item URIs as stable IDs.
+        if (!path.contains("/images/media/")) return null
+        return id
+    }
+
+    private fun imageCollection(): Uri = if (Build.VERSION.SDK_INT >= 29) {
+        MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+    } else {
+        MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+    }
+
+    private fun canonicalLiveUri(liveUri: String): String {
+        val id = mediaStoreId(liveUri) ?: return liveUri
+        return ContentUris.withAppendedId(imageCollection(), id).toString()
+    }
+
+    private fun preferWork(
+        current: Map<String, Any>?,
+        candidate: Map<String, Any>,
+    ): Map<String, Any> {
+        if (current == null) return candidate
+        val currentVideo = current["shareMimeType"] == "video/mp4"
+        val candidateVideo = candidate["shareMimeType"] == "video/mp4"
+        // Only replace when the candidate upgrades a still-image placeholder to a
+        // playable preview. Otherwise keep the indexed row so recover cannot fork
+        // a second card for the same Motion Photo.
+        return if (candidateVideo && !currentVideo) candidate else current
+    }
+
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -49,14 +97,22 @@ class ExportIndex(private val context: Context) :
     }
 
     fun save(item: Map<String, String>) {
+        val liveUri = canonicalLiveUri(item.getValue("liveUri"))
+        val displayName = item.getValue("displayName")
+        // Collapse any URI-alias duplicates before writing the canonical row.
+        findSiblingWorks(liveUri, displayName).forEach { sibling ->
+            if (sibling.liveUri != liveUri) {
+                writableDatabase.delete("works", "live_uri = ?", arrayOf(sibling.liveUri))
+            }
+        }
         writableDatabase.insertWithOnConflict(
             "works",
             null,
             ContentValues().apply {
-                put("live_uri", item.getValue("liveUri"))
+                put("live_uri", liveUri)
                 put("gallery_uri", item.getValue("galleryUri"))
                 put("cover_path", item.getValue("coverPath"))
-                put("display_name", item.getValue("displayName"))
+                put("display_name", displayName)
                 put("created_at", item.getValue("createdAt").toLong())
                 put("share_mime_type", item.getValue("shareMimeType"))
                 put("deleting", 0)
@@ -100,25 +156,72 @@ class ExportIndex(private val context: Context) :
                 return@forEach
             }
             if (!mediaExists(record.liveUri)) {
-                completeDelete(record.liveUri, record.coverPath, record.displayName)
+                val siblings = findSiblingWorks(record.liveUri, record.displayName)
+                val aliasStillAlive = siblings.any {
+                    it.liveUri != record.liveUri && mediaExists(it.liveUri)
+                }
+                if (aliasStillAlive) {
+                    // Stale URI alias only — keep the work via the living row.
+                    writableDatabase.delete("works", "live_uri = ?", arrayOf(record.liveUri))
+                } else {
+                    completeDelete(record.liveUri, record.coverPath, record.displayName)
+                }
                 return@forEach
             }
             if (!File(record.coverPath).exists()) return@forEach
-            indexed[record.liveUri] = mapOf(
-                "liveUri" to record.liveUri,
+            val canonicalUri = canonicalLiveUri(record.liveUri)
+            val item = mapOf(
+                "liveUri" to canonicalUri,
                 "galleryUri" to record.galleryUri,
                 "coverPath" to record.coverPath,
                 "displayName" to record.displayName,
                 "createdAt" to record.createdAt,
                 "shareMimeType" to record.shareMimeType,
             )
+            val identity = workIdentity(canonicalUri, record.displayName)
+            val preferred = preferWork(indexed[identity], item)
+            indexed[identity] = preferred
+            if (canonicalUri != record.liveUri || preferred["liveUri"] != record.liveUri) {
+                // Migrate legacy external/external_primary alias rows onto one key.
+                save(preferred.mapValues { it.value.toString() })
+                if (record.liveUri != preferred["liveUri"]) {
+                    writableDatabase.delete("works", "live_uri = ?", arrayOf(record.liveUri))
+                }
+            }
         }
         recoverFromMediaStore().forEach { recovered ->
             val liveUri = recovered.getValue("liveUri") as String
-            val current = indexed[liveUri]
-            if (current == null || current["shareMimeType"] != "video/mp4") {
-                indexed[liveUri] = recovered
-                save(recovered.mapValues { it.value.toString() })
+            val displayName = recovered.getValue("displayName") as String
+            val identity = workIdentity(liveUri, displayName)
+            val nameIdentity = "name:${displayName.trim()}"
+            // Legacy pre-Q exports store file:// liveUris keyed only by displayName.
+            val current = indexed[identity] ?: indexed[nameIdentity]
+            val preferred = preferWork(current, recovered)
+            if (current == null || preferred !== current) {
+                indexed[identity] = preferred
+                if (identity != nameIdentity) indexed.remove(nameIdentity)
+                save(preferred.mapValues { it.value.toString() })
+                // Remove any leftover alias that used a different URI string.
+                if (current != null) {
+                    val oldUri = current["liveUri"] as String
+                    val newUri = preferred["liveUri"] as String
+                    if (oldUri != newUri) {
+                        writableDatabase.delete("works", "live_uri = ?", arrayOf(oldUri))
+                    }
+                }
+            } else {
+                indexed[identity] = current
+                if (identity != nameIdentity) indexed.remove(nameIdentity)
+            }
+        }
+        // Final sweep: collapse any leftover URI-alias rows for works we kept.
+        indexed.values.forEach { item ->
+            val uri = item.getValue("liveUri") as String
+            val name = item.getValue("displayName") as String
+            findSiblingWorks(uri, name).forEach { sibling ->
+                if (sibling.liveUri != uri) {
+                    writableDatabase.delete("works", "live_uri = ?", arrayOf(sibling.liveUri))
+                }
             }
         }
         return indexed.values.sortedByDescending { it.getValue("createdAt") as Long }
@@ -126,61 +229,134 @@ class ExportIndex(private val context: Context) :
 
     /** Deletes the public Motion Photo and every private file owned by a work. */
     fun delete(liveUri: String, coverPathHint: String?, displayNameHint: String?) {
+        val siblings = findSiblingWorks(liveUri, displayNameHint)
         var coverPath: String? = coverPathHint?.takeIf(String::isNotBlank)
         var displayName: String? = displayNameHint?.takeIf(String::isNotBlank)
-        readableDatabase.query(
-            "works",
-            arrayOf("cover_path", "display_name"),
-            "live_uri = ?",
-            arrayOf(liveUri),
-            null,
-            null,
-            null,
-        ).use { cursor ->
-            if (cursor.moveToFirst()) {
-                coverPath = cursor.getString(0)
-                displayName = cursor.getString(1)
+        if (siblings.isNotEmpty()) {
+            coverPath = coverPath ?: siblings.first().coverPath
+            displayName = displayName ?: siblings.first().displayName
+        } else {
+            readableDatabase.query(
+                "works",
+                arrayOf("cover_path", "display_name"),
+                "live_uri = ?",
+                arrayOf(liveUri),
+                null,
+                null,
+                null,
+            ).use { cursor ->
+                if (cursor.moveToFirst()) {
+                    coverPath = cursor.getString(0)
+                    displayName = cursor.getString(1)
+                }
             }
         }
 
+        val targetUris = (siblings.map { it.liveUri } + liveUri).distinct()
+
         // Persist intent before touching MediaStore. If the process is killed
         // between steps, listAndReconcile finishes this idempotently next time.
-        writableDatabase.update(
-            "works",
-            ContentValues().apply { put("deleting", 1) },
-            "live_uri = ?",
-            arrayOf(liveUri),
-        )
-        try {
-            deletePublicMedia(liveUri)
-        } catch (error: Exception) {
+        targetUris.forEach { uri ->
             writableDatabase.update(
                 "works",
-                ContentValues().apply { put("deleting", 0) },
+                ContentValues().apply { put("deleting", 1) },
                 "live_uri = ?",
-                arrayOf(liveUri),
+                arrayOf(uri),
             )
+        }
+        try {
+            // One MediaStore row may be referenced by multiple URI aliases.
+            var deletedPublic = false
+            var lastError: Exception? = null
+            for (uri in targetUris) {
+                try {
+                    deletePublicMedia(uri)
+                    deletedPublic = true
+                    break
+                } catch (error: Exception) {
+                    lastError = error
+                }
+            }
+            if (!deletedPublic && targetUris.any { mediaExists(it) }) {
+                throw lastError ?: IllegalStateException("MediaStore did not delete work: $liveUri")
+            }
+        } catch (error: Exception) {
+            targetUris.forEach { uri ->
+                writableDatabase.update(
+                    "works",
+                    ContentValues().apply { put("deleting", 0) },
+                    "live_uri = ?",
+                    arrayOf(uri),
+                )
+            }
             throw error
         }
         completeDelete(liveUri, coverPath, displayName)
     }
 
+    private fun findSiblingWorks(liveUri: String, displayNameHint: String?): List<IndexedWork> {
+        val records = mutableListOf<IndexedWork>()
+        readableDatabase.query(
+            "works",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                records += IndexedWork(
+                    liveUri = cursor.getString(cursor.getColumnIndexOrThrow("live_uri")),
+                    galleryUri = cursor.getString(cursor.getColumnIndexOrThrow("gallery_uri")),
+                    coverPath = cursor.getString(cursor.getColumnIndexOrThrow("cover_path")),
+                    displayName = cursor.getString(cursor.getColumnIndexOrThrow("display_name")),
+                    createdAt = cursor.getLong(cursor.getColumnIndexOrThrow("created_at")),
+                    shareMimeType = cursor.getString(cursor.getColumnIndexOrThrow("share_mime_type")),
+                    deleting = cursor.getInt(cursor.getColumnIndexOrThrow("deleting")) != 0,
+                )
+            }
+        }
+        val hintName = displayNameHint?.takeIf(String::isNotBlank)
+        val identity = workIdentity(liveUri, hintName ?: "")
+        return records.filter { record ->
+            record.liveUri == liveUri ||
+                (hintName != null && record.displayName == hintName) ||
+                workIdentity(record.liveUri, record.displayName) == identity ||
+                (hintName == null &&
+                    mediaStoreId(liveUri) != null &&
+                    mediaStoreId(record.liveUri) == mediaStoreId(liveUri))
+        }
+    }
+
     private fun completeDelete(liveUri: String, coverPath: String?, displayName: String?) {
         // Missing files are already in the desired state, so every step is safe
         // to repeat after a crash or an external gallery deletion.
-        val coverRemoved = coverPath?.let { deletePrivateFile(File(it)) } ?: true
-        val videoRemoved = displayName?.let { name ->
+        val siblings = findSiblingWorks(liveUri, displayName)
+        val coverPaths = (listOfNotNull(coverPath) + siblings.map { it.coverPath }).distinct()
+        val names = (listOfNotNull(displayName) + siblings.map { it.displayName }).distinct()
+        val coverRemoved = coverPaths.all { deletePrivateFile(File(it)) }
+        val videoRemoved = names.all { name ->
             deletePrivateFile(File(context.filesDir, "afterframe/exports/$name.mp4"))
-        } ?: true
+        }
+        val targetUris = (siblings.map { it.liveUri } + liveUri).distinct()
         if (coverRemoved && videoRemoved) {
-            writableDatabase.delete("works", "live_uri = ?", arrayOf(liveUri))
+            targetUris.forEach { uri ->
+                writableDatabase.delete("works", "live_uri = ?", arrayOf(uri))
+            }
+            // Also sweep by displayName in case an alias escaped sibling lookup.
+            displayName?.takeIf(String::isNotBlank)?.let { name ->
+                writableDatabase.delete("works", "display_name = ?", arrayOf(name))
+            }
         } else {
-            writableDatabase.update(
-                "works",
-                ContentValues().apply { put("deleting", 1) },
-                "live_uri = ?",
-                arrayOf(liveUri),
-            )
+            targetUris.forEach { uri ->
+                writableDatabase.update(
+                    "works",
+                    ContentValues().apply { put("deleting", 1) },
+                    "live_uri = ?",
+                    arrayOf(uri),
+                )
+            }
         }
     }
 
@@ -226,7 +402,9 @@ class ExportIndex(private val context: Context) :
     }
 
     private fun recoverFromMediaStore(): List<Map<String, Any>> {
-        val collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        // Must match ExportService.imageCollection() so recovered liveUri strings
+        // collide with rows written at export time (same volume + ContentUris).
+        val collection = imageCollection()
         val projection = arrayOf(
             MediaStore.Images.Media._ID,
             MediaStore.Images.Media.DISPLAY_NAME,
@@ -249,7 +427,7 @@ class ExportIndex(private val context: Context) :
             val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
             while (cursor.moveToNext()) {
                 runCatching {
-                    val uri = Uri.withAppendedPath(collection, cursor.getLong(idColumn).toString())
+                    val uri = ContentUris.withAppendedId(collection, cursor.getLong(idColumn))
                     val name = cursor.getString(nameColumn)
                     val cover = persistentCover(uri, name)
                     val video = runCatching { persistentVideo(cover, name) }.getOrNull()

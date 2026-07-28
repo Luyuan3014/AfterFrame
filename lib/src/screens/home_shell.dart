@@ -133,7 +133,18 @@ class _HomeShellState extends State<HomeShell> {
     try {
       await _engine.deleteExport(export);
       if (!mounted) return;
-      setState(() => _exports.removeWhere((item) => item.path == export.path));
+      // Same Motion Photo may have been indexed under URI aliases; drop every
+      // card that shares the work identity, then reconcile to stay authoritative.
+      setState(() {
+        _exports.removeWhere(
+          (item) =>
+              item.path == export.path ||
+              (export.displayName.isNotEmpty &&
+                  item.displayName == export.displayName),
+        );
+      });
+      await _restoreExports();
+      if (!mounted) return;
       _message('workDeleted');
     } catch (error) {
       // Reconcile after any partial native failure. If MediaStore was already
