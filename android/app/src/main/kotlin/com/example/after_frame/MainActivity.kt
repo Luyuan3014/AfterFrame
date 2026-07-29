@@ -110,6 +110,16 @@ class MainActivity : FlutterActivity() {
         if (::updateManager.isInitialized) updateManager.resumePendingInstall()
     }
 
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(AppUpdateManager.EXTRA_RESUME_INSTALL, false) &&
+            ::updateManager.isInitialized
+        ) {
+            updateManager.resumePendingInstall()
+        }
+    }
+
     private fun requestVideoAccess(result: MethodChannel.Result) {
         if (hasVideoAccess()) {
             result.success(true)

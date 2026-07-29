@@ -13,7 +13,7 @@
 - Gitee 清单、APK 和 SHA-1 只接受 HTTPS Gitee 及官方 `raw.giteeusercontent.com` 内容域名；清单包名必须等于当前 `applicationId`。元数据解析会显式剥离 UTF-8 BOM。
 - 每个 ABI 资产自己的实际 `versionCode` 是升级顺序的唯一依据。Flutter split APK 会产生不同的 ABI versionCode，因此选定当前 ABI 后才比较，并在检查、下载前和安装前重复执行严格大于判断。
 - 当前 ABI 从已安装 APK 的 `lib/<abi>/libapp.so` 和运行时 native library 目录交叉确定；下载 APK 必须只含同一个目标 ABI。
-- SHA-1 按用户发布文件校验，同时用 Android PackageManager 比对 APK 包名、版本和签名证书。未安装 APK 的签名读取会同时请求 `GET_SIGNING_CERTIFICATES` 与遗留 `GET_SIGNATURES`，避免部分系统上 `signingInfo == null` 导致误判校验失败。SHA-1 不承担发布者身份认证，签名匹配才是防止第三方替换 APK 的核心保护。
+- SHA-1 按用户发布文件校验，同时用 Android PackageManager 比对 APK 包名、版本和签名证书。未安装 APK 的签名读取会同时请求 `GET_SIGNING_CERTIFICATES` 与遗留 `GET_SIGNATURES`，并在二者皆空时（常见于 Android 16 + v2-only APK）直接解析 APK Signing Block 提取证书摘要。SHA-1 不承担发布者身份认证，签名匹配才是防止第三方替换 APK 的核心保护。
 - Android 系统安装器是最终安装边界；未知来源授权和安装确认不可由普通应用静默绕过。
 
 ## 设计结论

@@ -43,6 +43,10 @@ Copy-Item android/key.properties.example android/key.properties
 
 这些问题发生在解析清单之前，无法只靠修改远端清单修复已安装的 0.7.0。必须使用相同签名手动安装一次 0.7.1。不要卸载 0.7.0，直接覆盖安装可以保留应用数据。
 
+### Android 16：从 0.7.5 及更早版本迁移到 0.7.6
+
+0.7.5 及更早版本在 Android 16 上会把 **v2-only** 更新包误判为“无签名证书”并显示“更新未完成”。缺陷在已安装客户端内，发布新的 `update.json` 无法修好旧客户端。Android 16 用户需手动覆盖安装一次同签名的 0.7.6；Android 11 等仍能读到 archive 签名字段的机型不受影响，可继续走 App 内更新到 0.7.6。
+
 构建 0.7.1：
 
 ```powershell
@@ -106,5 +110,6 @@ Flutter split APK 会生成 ABI 特有的 Android versionCode。例如 build num
 - 首次侧载授权：授权未知来源安装后返回 App，系统安装页自动继续打开。
 - 三类 ABI 至少各验证一次；x86_64 通常用于模拟器，arm64-v8a/armeabi-v7a 需对应真机。
 - 回归：低版本真机点“后台下载”后，进度走满不得再显示“更新未完成”；应出现系统安装确认页或“允许安装未知应用”设置页。
+- Android 16 / API 36 真机或模拟器至少复测一次：正式包为 v2-only 签名时，客户端必须能从 APK Signing Block 读出证书并打开安装器。
 
 普通应用无法静默绕过 Android 系统安装确认，这是平台安全边界，不属于失败。

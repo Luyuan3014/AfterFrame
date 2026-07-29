@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.6 - 2026-07-29
+
+- 修复 Android 16（及部分高版本）上下载校验通过后仍显示“更新未完成，点按重新检查”、无法进入系统安装页的问题。
+- 根因：正式 APK 为 **仅 APK Signature Scheme v2**（无 JAR v1）。Android 16 上 `getPackageArchiveInfo` 对未安装 APK 经常返回空的 `signingInfo`/`signatures`，旧逻辑把“读不到证书”当成校验失败并删除已下载包。
+- 现增加直接解析 APK Signing Block（v2/v3/v3.1）的证书摘要回退；同时兼容 PackageInfoFlags 与遗留 int 重载；安装 Intent 补充 package visibility queries、显式 URI 授权；安装器拉起失败不再把整次更新标为 ERROR。
+- 与 0.7.0→0.7.1 相同：该缺陷发生在已安装客户端的校验阶段，无法靠远端清单自愈。Android 16 上已安装 0.7.5 及更早版本的用户需用同签名包手动覆盖安装一次 0.7.6；之后 App 内更新恢复正常。
+
+## 0.7.5 - 2026-07-29
+- 解决Motion Photo因URI别名产生的重复导出条目。
+- 更新全平台应用图标和品牌资产。
+
 ## 0.7.4 - 2026-07-28
 
 - 修复“后台下载”进度走满后落入“更新未完成，点按重新检查”、且从不弹出系统安装界面的问题。

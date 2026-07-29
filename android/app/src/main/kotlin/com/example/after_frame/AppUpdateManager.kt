@@ -212,6 +212,7 @@ internal class AppUpdateManager(private val context: Context) {
 
     fun install(): Map<String, Any?> {
         verifyDownloadedApk()
+        preferences.edit().putString(KEY_STATUS, STATUS_READY).apply()
         if (Build.VERSION.SDK_INT >= 26 && !context.packageManager.canRequestPackageInstalls()) {
             preferences.edit().putBoolean(KEY_PENDING_INSTALL, true).apply()
             val intent = Intent(
@@ -221,6 +222,7 @@ internal class AppUpdateManager(private val context: Context) {
             context.startActivity(intent)
             return mapOf("status" to "permission_required")
         }
+        preferences.edit().putBoolean(KEY_PENDING_INSTALL, false).apply()
         launchInstaller()
         return mapOf("status" to "installer_opened")
     }
@@ -228,11 +230,17 @@ internal class AppUpdateManager(private val context: Context) {
     fun resumePendingInstall() {
         if (!preferences.getBoolean(KEY_PENDING_INSTALL, false)) return
         if (Build.VERSION.SDK_INT >= 26 && !context.packageManager.canRequestPackageInstalls()) return
-        preferences.edit().putBoolean(KEY_PENDING_INSTALL, false).apply()
+        // Launch failures must not flip the update into STATUS_ERROR: Android
+        // 14–16 often block one-shot installer starts, and the verified APK is
+        // still good for a manual retry.
         runCatching {
             verifyDownloadedApk()
+            preferences.edit()
+                .putString(KEY_STATUS, STATUS_READY)
+                .putBoolean(KEY_PENDING_INSTALL, false)
+                .apply()
             launchInstaller()
-        }.onFailure { fail("VERIFY_FAILED", it) }
+        }
     }
 
     private fun verifyDownloadedApk() {
@@ -260,7 +268,7 @@ internal class AppUpdateManager(private val context: Context) {
         val expectedAbi = preferences.getString(KEY_ABI, null) ?: error("Missing ABI")
         require(expectedAbi == installedAbi()) { "Installed ABI changed" }
         require(apkAbis(file) == setOf(expectedAbi)) { "APK contains the wrong ABI" }
-        require(signatures(archive) == signatures(currentPackage())) {
+        require(signatures(archive, file) == signatures(currentPackage())) {
             "APK signing certificate does not match the installed app"
         }
     }
@@ -289,11 +297,27 @@ internal class AppUpdateManager(private val context: Context) {
     private fun launchInstaller() {
         val file = File(preferences.getString(KEY_LOCAL_PATH, null) ?: error("Missing update APK"))
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-        context.startActivity(
-            Intent(Intent.ACTION_VIEW)
-                .setDataAndType(uri, APK_MIME)
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
+        val intent = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, APK_MIME)
+            .addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP,
+            )
+        // Explicit grants remain necessary on some Android 14–16 builds even
+        // with FLAG_GRANT_READ_URI_PERMISSION on the intent.
+        val installers = context.packageManager.queryIntentActivities(
+            intent,
+            PackageManager.MATCH_DEFAULT_ONLY,
         )
+        for (resolve in installers) {
+            context.grantUriPermission(
+                resolve.activityInfo.packageName,
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+        }
+        context.startActivity(intent)
     }
 
     private fun installedAbi(): String {
@@ -322,23 +346,33 @@ internal class AppUpdateManager(private val context: Context) {
         }.filter { it in UpdatePolicy.supportedAbis }.toSet()
     }
 
-    private fun currentPackage(): PackageInfo = context.packageManager.getPackageInfo(
-        context.packageName,
-        packageFlags(),
-    )
-
-    @Suppress("DEPRECATION")
-    private fun packageArchive(file: File): PackageInfo? {
-        // Prefer the PackageInfoFlags overload on API 33+; keep the int
-        // overload below for older devices.
-        val info = if (Build.VERSION.SDK_INT >= 33) {
-            context.packageManager.getPackageArchiveInfo(
-                file.absolutePath,
+    private fun currentPackage(): PackageInfo =
+        if (Build.VERSION.SDK_INT >= 33) {
+            context.packageManager.getPackageInfo(
+                context.packageName,
                 PackageManager.PackageInfoFlags.of(packageFlags().toLong()),
             )
         } else {
-            context.packageManager.getPackageArchiveInfo(file.absolutePath, packageFlags())
+            @Suppress("DEPRECATION")
+            context.packageManager.getPackageInfo(context.packageName, packageFlags())
         }
+
+    @Suppress("DEPRECATION")
+    private fun packageArchive(file: File): PackageInfo? {
+        // API 33+ prefers PackageInfoFlags, but several Android 13–16 builds
+        // return empty signing fields for that overload on uninstalled APKs.
+        // Always try the legacy int overload too and keep the richer result.
+        val flags = packageFlags()
+        val viaFlags = if (Build.VERSION.SDK_INT >= 33) {
+            context.packageManager.getPackageArchiveInfo(
+                file.absolutePath,
+                PackageManager.PackageInfoFlags.of(flags.toLong()),
+            )
+        } else {
+            null
+        }
+        val viaInt = context.packageManager.getPackageArchiveInfo(file.absolutePath, flags)
+        val info = selectRicherPackageInfo(viaFlags, viaInt)
         // Some platform builds leave these null for archive parses; later
         // PackageManager calls may need an explicit on-disk path.
         info?.applicationInfo?.let { applicationInfo ->
@@ -346,6 +380,20 @@ internal class AppUpdateManager(private val context: Context) {
             applicationInfo.publicSourceDir = file.absolutePath
         }
         return info
+    }
+
+    @Suppress("DEPRECATION")
+    private fun selectRicherPackageInfo(first: PackageInfo?, second: PackageInfo?): PackageInfo? {
+        fun score(info: PackageInfo?): Int {
+            if (info == null) return -1
+            var value = 0
+            if (Build.VERSION.SDK_INT >= 28 && !info.signingInfo?.apkContentsSigners.isNullOrEmpty()) {
+                value += 2
+            }
+            if (!info.signatures.isNullOrEmpty()) value += 1
+            return value
+        }
+        return if (score(first) >= score(second)) first else second
     }
 
     @Suppress("DEPRECATION")
@@ -365,7 +413,7 @@ internal class AppUpdateManager(private val context: Context) {
         if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
 
     @Suppress("DEPRECATION")
-    private fun signatures(info: PackageInfo): Set<String> {
+    private fun signatures(info: PackageInfo, archiveFile: File? = null): Set<String> {
         val fromSigningInfo = if (Build.VERSION.SDK_INT >= 28) {
             info.signingInfo?.apkContentsSigners?.map { it.toByteArray() }.orEmpty()
         } else {
@@ -374,10 +422,16 @@ internal class AppUpdateManager(private val context: Context) {
         val certificates = fromSigningInfo.ifEmpty {
             info.signatures?.map { it.toByteArray() }.orEmpty()
         }
-        require(certificates.isNotEmpty()) { "APK has no signing certificate" }
-        return certificates.map { bytes ->
-            MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
-        }.toSet()
+        if (certificates.isNotEmpty()) {
+            return certificates.map { bytes ->
+                MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+            }.toSet()
+        }
+        // v2/v3-only APKs frequently yield empty PackageManager signing fields
+        // for archives on Android 16; read the APK Signing Block directly.
+        val fromApk = archiveFile?.let(ApkSigningCerts::sha256Digests).orEmpty()
+        require(fromApk.isNotEmpty()) { "APK has no signing certificate" }
+        return fromApk
     }
 
     private fun digest(file: File, algorithm: String): String {
@@ -441,11 +495,13 @@ internal class AppUpdateManager(private val context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= 26) {
             manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "应用更新", NotificationManager.IMPORTANCE_DEFAULT),
+                NotificationChannel(CHANNEL_ID, "应用更新", NotificationManager.IMPORTANCE_HIGH),
             )
         }
+        preferences.edit().putBoolean(KEY_PENDING_INSTALL, true).apply()
         val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
             ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            ?.putExtra(EXTRA_RESUME_INSTALL, true)
         val pending = PendingIntent.getActivity(
             context,
             0,
@@ -457,7 +513,8 @@ internal class AppUpdateManager(private val context: Context) {
             NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(context.applicationInfo.icon)
                 .setContentTitle("AfterFrame 更新已就绪")
-                .setContentText("已通过版本、ABI、签名与 SHA-1 校验，正在打开安装器")
+                .setContentText("校验通过，点按通知继续安装")
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
                 .setContentIntent(pending)
                 .build(),
@@ -494,6 +551,7 @@ internal class AppUpdateManager(private val context: Context) {
         private const val MAX_MANIFEST_BYTES = 64 * 1024
         private const val MAX_SHA1_BYTES = 1024
         private const val MAX_REDIRECTS = 4
+        const val EXTRA_RESUME_INSTALL = "afterframe_resume_install"
         private val ACTIVE_UPDATE_STATES = setOf(
             STATUS_AVAILABLE,
             STATUS_DOWNLOADING,

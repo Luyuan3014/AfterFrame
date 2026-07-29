@@ -202,11 +202,16 @@ class _AppUpdateCardState extends State<AppUpdateCard>
     setState(() => _busy = true);
     try {
       final status = await widget.service.install();
-      if (mounted && status == 'permission_required') {
+      if (!mounted) return;
+      if (status == 'permission_required') {
         _message('allowInstallHint');
       }
+      await _refresh(silent: true);
     } catch (_) {
-      if (mounted) _message('updateVerifyFailed');
+      if (mounted) {
+        _message('updateVerifyFailed');
+        await _refresh(silent: true);
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
