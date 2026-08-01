@@ -16,6 +16,16 @@
 - SHA-1 按用户发布文件校验，同时用 Android PackageManager 比对 APK 包名、版本和签名证书。未安装 APK 的签名读取会同时请求 `GET_SIGNING_CERTIFICATES` 与遗留 `GET_SIGNATURES`，并在二者皆空时（常见于 Android 16 + v2-only APK）直接解析 APK Signing Block 提取证书摘要。SHA-1 不承担发布者身份认证，签名匹配才是防止第三方替换 APK 的核心保护。
 - Android 系统安装器是最终安装边界；未知来源授权和安装确认不可由普通应用静默绕过。
 
+## “我的”与本地设置
+
+“我的”页面不是账号中心，不展示不可编辑的人形头像、昵称或假 ID。顶部使用不可点击的 AfterFrame 本地工作区品牌卡，明确“无需账号、数据留在本机”，避免制造登录、同步或编辑身份的错误预期。入口按语义分成“偏好设置 / 作品与导出 / 存储与隐私 / 支持与关于”，不再用“设置”统括导航、说明和支持动作。
+
+页面只暴露已有真实能力，不保存无法兑现的伪设置：作品相册切换到同一 `HomeShell` 的作品索引；导出画质说明 Media3 H.264/AAC 重编码和 Canvas First 整画布缩放边界；Live 容器说明 Motion Photo 相册副本与 MP4 分享副本的职责；关于页从 `AppUpdateManager.currentState()` 读取当前版本与 ABI，并使用 Flutter 许可页展示依赖许可。
+
+隐私与数据入口明确三类存储所有权：MediaStore 中的正式作品属于系统相册，`filesDir/afterframe` 是随 App 卸载移除的持久预览/分享副本，`cacheDir/afterframe` 是可随时重新生成的临时数据。媒体编辑不上传；网络只用于配置的 Gitee 更新检查与安装包下载。
+
+语言以普通设置卡片进入底部选择器，继续持久化到 `afterframe_settings`。临时缓存通过 MethodChannel 的 `getTemporaryCacheUsage/clearTemporaryCache` 管理；每次切换进入“我的”页都会刷新统计，并用 generation 丢弃过期异步结果。原生 `TemporaryCacheManager` 将删除范围严格限定为 `cacheDir/afterframe`。`filesDir/afterframe` 中的作品封面、MP4 分享副本、`ExportIndex`，其他插件缓存，以及 MediaStore 中的正式作品都不属于该缓存，绝不能随缓存清理删除。原生清理成功后 Flutter 同时清空缩略图/抽帧的内存路径表，防止继续引用已经删除的文件。
+
 ## 设计结论
 
 AfterFrame 的核心是“视频片段 → Motion Photo/MP4”和最多三路视频的同步 Live 拼图。Media3 1.10.1 已覆盖这些能力，不需要 FFmpegKit：
@@ -44,6 +54,7 @@ Android MethodChannel
 ├─ MainActivity
 │  ├─ 权限 / MediaStore 查询
 │  ├─ 媒体信息 / 缩略图 / 抽帧
+│  ├─ 临时缓存统计 / 安全清理
 │  └─ 分享入口
 ├─ Media3RenderEngine
 │  ├─ 单视频 EditedMediaItem

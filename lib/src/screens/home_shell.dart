@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/media_asset.dart';
 import '../services/media_engine.dart';
+import '../services/app_update_service.dart';
 import '../theme.dart';
 import '../live_editor/live_editor_page.dart';
 import '../localization/app_localizations.dart';
@@ -185,7 +186,10 @@ class _HomeShellState extends State<HomeShell> {
               onDelete: _deleteExport,
               deletingExports: _deletingExports,
             ),
-            const _Profile(),
+            _Profile(
+              active: _page == 2,
+              onOpenWorks: () => setState(() => _page = 1),
+            ),
           ],
         ),
       ),
@@ -745,8 +749,224 @@ class _EmptyWorks extends StatelessWidget {
   }
 }
 
-class _Profile extends StatelessWidget {
-  const _Profile();
+class _Profile extends StatefulWidget {
+  const _Profile({required this.active, required this.onOpenWorks});
+
+  final bool active;
+  final VoidCallback onOpenWorks;
+
+  @override
+  State<_Profile> createState() => _ProfileState();
+}
+
+class _ProfileState extends State<_Profile> {
+  final _engine = const MediaEngine();
+  int? _cacheBytes;
+  int? _cacheFiles;
+  bool _cacheBusy = false;
+  int _cacheLoadGeneration = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.active) _loadCache();
+  }
+
+  @override
+  void didUpdateWidget(covariant _Profile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.active && widget.active) _loadCache();
+  }
+
+  Future<void> _loadCache() async {
+    final generation = ++_cacheLoadGeneration;
+    if (mounted && !_cacheBusy) setState(() => _cacheBusy = true);
+    try {
+      final usage = await _engine.temporaryCacheUsage();
+      if (mounted && generation == _cacheLoadGeneration) {
+        setState(() {
+          _cacheBytes = usage.bytes;
+          _cacheFiles = usage.files;
+          _cacheBusy = false;
+        });
+      }
+    } catch (_) {
+      if (mounted && generation == _cacheLoadGeneration) {
+        setState(() => _cacheBusy = false);
+      }
+    }
+  }
+
+  Future<void> _clearCache() async {
+    if (_cacheBusy || (_cacheBytes ?? 0) == 0) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(dialogContext.l10n.text('clearCacheTitle')),
+        content: Text(dialogContext.l10n.text('clearCacheDetail')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(dialogContext.l10n.text('cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(dialogContext.l10n.text('clear')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    _cacheLoadGeneration++;
+    setState(() => _cacheBusy = true);
+    try {
+      await _engine.clearTemporaryCache();
+      if (!mounted) return;
+      setState(() {
+        _cacheBytes = 0;
+        _cacheFiles = 0;
+        _cacheBusy = false;
+      });
+      _message('cacheCleared');
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _cacheBusy = false);
+      _message('cacheClearFailed');
+    }
+  }
+
+  void _onCacheTap() {
+    if (_cacheBytes == null) {
+      _loadCache();
+    } else if (_cacheBytes == 0) {
+      _message('cacheAlreadyEmpty');
+    } else {
+      _clearCache();
+    }
+  }
+
+  Future<void> _showLanguagePicker(AppLanguageController controller) =>
+      showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        builder: (sheetContext) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+                  child: Text(
+                    sheetContext.l10n.text('appLanguage'),
+                    style: Theme.of(sheetContext).textTheme.titleLarge,
+                  ),
+                ),
+                for (final value in AppLanguage.values)
+                  ListTile(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    leading: Icon(
+                      value == AppLanguage.chinese
+                          ? Icons.translate_rounded
+                          : Icons.language_rounded,
+                    ),
+                    title: Text(
+                      sheetContext.l10n.text(
+                        value == AppLanguage.chinese ? 'chinese' : 'english',
+                      ),
+                    ),
+                    trailing: controller.language == value
+                        ? const Icon(
+                            Icons.check_circle_rounded,
+                            color: AfterFrameColors.lime,
+                          )
+                        : null,
+                    selected: controller.language == value,
+                    onTap: () async {
+                      await controller.setLanguage(value);
+                      if (sheetContext.mounted) Navigator.pop(sheetContext);
+                    },
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+  void _message(String key) => ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(context.l10n.text(key)),
+      behavior: SnackBarBehavior.floating,
+    ),
+  );
+
+  Future<void> _showInfo({
+    required String titleKey,
+    required String bodyKey,
+    IconData icon = Icons.info_outline_rounded,
+  }) => showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (sheetContext) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 4, 24, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 30, color: AfterFrameColors.lime),
+            const SizedBox(height: 14),
+            Text(
+              sheetContext.l10n.text(titleKey),
+              style: Theme.of(sheetContext).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 10),
+            Text(
+              sheetContext.l10n.text(bodyKey),
+              style: const TextStyle(
+                color: AfterFrameColors.muted,
+                height: 1.55,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  Future<void> _showAbout() async {
+    String version = '';
+    String abi = '';
+    try {
+      final state = await const AppUpdateService().state();
+      version = state.currentVersionName;
+      abi = state.abi;
+    } catch (_) {
+      // The about page remains useful if native package metadata is unavailable.
+    }
+    if (!mounted) return;
+    showAboutDialog(
+      context: context,
+      applicationName: 'AfterFrame · ${context.l10n.text('brandCn')}',
+      applicationVersion: version.isEmpty
+          ? context.l10n.text('versionUnavailable')
+          : '$version${abi.isEmpty ? '' : ' · $abi'}',
+      applicationIcon: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Image.asset('assets/branding/logo.png', width: 56, height: 56),
+      ),
+      applicationLegalese: context.l10n.text('aboutLegalese'),
+      children: [
+        const SizedBox(height: 12),
+        Text(context.l10n.text('privacySummary')),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -759,134 +979,226 @@ class _Profile extends StatelessWidget {
           l10n.text('profileTitle'),
           style: Theme.of(context).textTheme.headlineMedium,
         ),
-        const SizedBox(height: 26),
-        const CircleAvatar(
-          radius: 38,
-          backgroundColor: AfterFrameColors.lime,
-          child: Icon(Icons.person_rounded, size: 38, color: Colors.black),
+        const SizedBox(height: 18),
+        const _LocalWorkspaceCard(),
+        const SizedBox(height: 28),
+        _ProfileSectionLabel(l10n.text('preferences')),
+        const SizedBox(height: 10),
+        _ProfileTile(
+          icon: Icons.language_rounded,
+          title: l10n.text('appLanguage'),
+          value: l10n.text(
+            language.language == AppLanguage.chinese ? 'chinese' : 'english',
+          ),
+          onTap: () => _showLanguagePicker(language),
         ),
-        const SizedBox(height: 14),
-        Center(
-          child: Text(
-            l10n.text('collector'),
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+        const SizedBox(height: 18),
+        _ProfileSectionLabel(l10n.text('worksAndExport')),
+        const SizedBox(height: 10),
+        _ProfileTile(
+          icon: Icons.photo_library_outlined,
+          title: l10n.text('album'),
+          value: l10n.text('albumValue'),
+          onTap: widget.onOpenWorks,
+        ),
+        _ProfileTile(
+          icon: Icons.high_quality_rounded,
+          title: l10n.text('exportQuality'),
+          value: l10n.text('adaptiveQuality'),
+          onTap: () => _showInfo(
+            titleKey: 'exportQuality',
+            bodyKey: 'exportQualityDetail',
+            icon: Icons.high_quality_rounded,
           ),
         ),
-        const SizedBox(height: 30),
-        _LanguageSettings(controller: language),
+        _ProfileTile(
+          icon: Icons.motion_photos_on_outlined,
+          title: l10n.text('liveContainer'),
+          value: l10n.text('motionPhotoAndMp4'),
+          onTap: () => _showInfo(
+            titleKey: 'liveContainer',
+            bodyKey: 'liveContainerDetail',
+            icon: Icons.motion_photos_on_outlined,
+          ),
+        ),
+        const SizedBox(height: 18),
+        _ProfileSectionLabel(l10n.text('storageAndPrivacy')),
+        const SizedBox(height: 10),
+        _ProfileTile(
+          icon: Icons.cleaning_services_outlined,
+          title: l10n.text('temporaryCache'),
+          value: _cacheBusy
+              ? l10n.text('calculating')
+              : _cacheBytes == null
+              ? l10n.text('unavailable')
+              : _formatBytes(_cacheBytes!),
+          subtitle: _cacheFiles == null
+              ? null
+              : l10n.text('cacheFileCount', {'count': _cacheFiles!}),
+          busy: _cacheBusy,
+          onTap: _onCacheTap,
+        ),
+        _ProfileTile(
+          icon: Icons.privacy_tip_outlined,
+          title: l10n.text('privacyAndData'),
+          value: l10n.text('localProcessing'),
+          onTap: () => _showInfo(
+            titleKey: 'privacyAndData',
+            bodyKey: 'privacyAndDataDetail',
+            icon: Icons.privacy_tip_outlined,
+          ),
+        ),
+        const SizedBox(height: 18),
+        _ProfileSectionLabel(l10n.text('supportAndAbout')),
         const SizedBox(height: 10),
         const AppUpdateCard(),
-        for (final item in [
-          (
-            Icons.photo_library_outlined,
-            l10n.text('album'),
-            l10n.text('albumValue'),
-          ),
-          (
-            Icons.high_quality_rounded,
-            l10n.text('exportQuality'),
-            l10n.text('originalQuality'),
-          ),
-          (Icons.folder_zip_outlined, l10n.text('liveContainer'), '.live'),
-          (Icons.info_outline_rounded, l10n.text('about'), 'AfterFrame'),
-        ])
-          Card(
-            margin: const EdgeInsets.only(bottom: 10),
-            child: ListTile(
-              leading: Icon(item.$1),
-              title: Text(item.$2),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    item.$3,
-                    style: const TextStyle(color: AfterFrameColors.muted),
-                  ),
-                  const Icon(Icons.chevron_right_rounded),
-                ],
-              ),
-            ),
-          ),
+        _ProfileTile(
+          icon: Icons.info_outline_rounded,
+          title: l10n.text('about'),
+          value: 'AfterFrame',
+          onTap: _showAbout,
+        ),
       ],
     );
   }
+
+  String _formatBytes(int bytes) {
+    final l10n = context.l10n;
+    if (bytes < 1024) return l10n.text('bytesValue', {'value': bytes});
+    if (bytes < 1024 * 1024) {
+      return l10n.text('kbValue', {'value': (bytes / 1024).toStringAsFixed(1)});
+    }
+    return l10n.text('mbValue', {
+      'value': (bytes / (1024 * 1024)).toStringAsFixed(1),
+    });
+  }
 }
 
-class _LanguageSettings extends StatelessWidget {
-  const _LanguageSettings({required this.controller});
-
-  final AppLanguageController controller;
+class _LocalWorkspaceCard extends StatelessWidget {
+  const _LocalWorkspaceCard();
 
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(
-                  Icons.language_rounded,
-                  color: AfterFrameColors.lime,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        l10n.text('appLanguage'),
-                        style: const TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        l10n.text('languageHint'),
-                        style: const TextStyle(
-                          fontSize: 10,
-                          color: AfterFrameColors.muted,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            SegmentedButton<AppLanguage>(
-              showSelectedIcon: false,
-              segments: [
-                ButtonSegment(
-                  value: AppLanguage.chinese,
-                  label: Text(l10n.text('chinese')),
-                ),
-                ButtonSegment(
-                  value: AppLanguage.english,
-                  label: Text(l10n.text('english')),
-                ),
-              ],
-              selected: {controller.language},
-              onSelectionChanged: (value) =>
-                  controller.setLanguage(value.first),
-              style: ButtonStyle(
-                visualDensity: VisualDensity.comfortable,
-                backgroundColor: WidgetStateProperty.resolveWith(
-                  (states) => states.contains(WidgetState.selected)
-                      ? AfterFrameColors.lime
-                      : AfterFrameColors.glassSoft,
-                ),
-                foregroundColor: WidgetStateProperty.resolveWith(
-                  (states) => states.contains(WidgetState.selected)
-                      ? AfterFrameColors.ink
-                      : Colors.white,
+    return Semantics(
+      container: true,
+      label:
+          '${l10n.text('localWorkspaceTitle')}，${l10n.text('localWorkspaceDetail')}',
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: Image.asset(
+                  'assets/branding/logo.png',
+                  width: 62,
+                  height: 62,
+                  fit: BoxFit.cover,
                 ),
               ),
-            ),
-          ],
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l10n.text('localWorkspaceTitle'),
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      l10n.text('localWorkspaceDetail'),
+                      style: const TextStyle(
+                        color: AfterFrameColors.muted,
+                        fontSize: 12,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Icon(
+                Icons.phonelink_lock_rounded,
+                color: AfterFrameColors.lime,
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
+}
+
+class _ProfileSectionLabel extends StatelessWidget {
+  const _ProfileSectionLabel(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) => Text(
+    title,
+    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+      color: AfterFrameColors.muted,
+      letterSpacing: .2,
+    ),
+  );
+}
+
+class _ProfileTile extends StatelessWidget {
+  const _ProfileTile({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.onTap,
+    this.subtitle,
+    this.busy = false,
+  });
+
+  final IconData icon;
+  final String title;
+  final String value;
+  final String? subtitle;
+  final VoidCallback onTap;
+  final bool busy;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    margin: const EdgeInsets.only(bottom: 10),
+    child: ListTile(
+      leading: Icon(icon),
+      title: Text(title),
+      subtitle: subtitle == null ? null : Text(subtitle!),
+      onTap: busy ? null : onTap,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (busy)
+            const SizedBox.square(
+              dimension: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.sizeOf(context).width * .4,
+              ),
+              child: Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AfterFrameColors.muted),
+              ),
+            ),
+          const SizedBox(width: 4),
+          const Icon(Icons.chevron_right_rounded),
+        ],
+      ),
+    ),
+  );
 }

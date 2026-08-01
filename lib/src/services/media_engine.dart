@@ -20,6 +20,30 @@ class MediaEngine {
   static final Map<String, Future<String>> _frameCache = {};
   static const int _memoryCacheLimit = 96;
 
+  Future<TemporaryCacheUsage> temporaryCacheUsage() async {
+    try {
+      final data = await _channel.invokeMapMethod<Object?, Object?>(
+        'getTemporaryCacheUsage',
+      );
+      return TemporaryCacheUsage(
+        bytes: (data?['bytes'] as num?)?.toInt() ?? 0,
+        files: (data?['files'] as num?)?.toInt() ?? 0,
+      );
+    } on PlatformException catch (error) {
+      throw MediaEngineException(error.code, error.message ?? '无法读取临时缓存');
+    }
+  }
+
+  Future<void> clearTemporaryCache() async {
+    try {
+      await _channel.invokeMethod<void>('clearTemporaryCache');
+      _thumbnailCache.clear();
+      _frameCache.clear();
+    } on PlatformException catch (error) {
+      throw MediaEngineException(error.code, error.message ?? '无法清理临时缓存');
+    }
+  }
+
   Future<bool> requestVideoAccess() async {
     try {
       return await _channel.invokeMethod<bool>('requestVideoAccess') ?? false;
@@ -264,6 +288,13 @@ class MediaEngine {
       throw MediaEngineException(error.code, error.message ?? '无法打开分享面板');
     }
   }
+}
+
+class TemporaryCacheUsage {
+  const TemporaryCacheUsage({required this.bytes, required this.files});
+
+  final int bytes;
+  final int files;
 }
 
 class PublishedLive {

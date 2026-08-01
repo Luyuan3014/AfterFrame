@@ -1,5 +1,7 @@
 # AfterFrame（余帧）
 
+当前源码版本：**1.0.0+15**。
+
 ## Gitee 应用更新
 
 当前版本提供 Android 同 ABI 安全更新。检查入口位于“我的 → 检查更新”。更新由系统下载服务在后台执行，完成后依次校验：远端 SHA-1、文件大小、APK 可解析性、包名、`versionCode`、`versionName`、当前 ABI 和已安装 App 的签名证书。校验通过后前台会自动打开系统安装器。只有远端 `versionCode` 严格大于当前版本才允许进入下载和安装流程，因此版本名写错、同版本重发和版本回退都会被拒绝。
@@ -14,7 +16,7 @@
 flutter build apk --release --split-per-abi
 ```
 
-每次发布先提升 `pubspec.yaml` 中的版本，执行分 ABI 构建，然后在 Gitee 创建对应 Release（例如 `v0.7.1`）并把三个 APK 上传为 Release 附件。仓库普通 raw 大文件会被 Gitee 对匿名用户返回 403，不能用作 App 下载源。
+每次发布先提升 `pubspec.yaml` 中的版本，执行分 ABI 构建，然后在 Gitee 创建对应 Release（当前为 `v1.0.0`）并把三个 APK 上传为 Release 附件。仓库普通 raw 大文件会被 Gitee 对匿名用户返回 403，不能用作 App 下载源。
 
 从 Gitee Release 页面 URL 或公开 API 获取数字 `ReleaseId`，再生成清单：
 
@@ -30,8 +32,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tool\prepare_gitee_upd
 不要在 Gitee 网页中逐个替换文件。使用原子发布脚本先做本地提交检查，确认无误后再带 `-Push` 推送：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tool\publish_gitee_update.ps1 -BundleDirectory build/app/outputs/flutter-apk/gitee-update-0.7.1
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tool\publish_gitee_update.ps1 -BundleDirectory build/app/outputs/flutter-apk/gitee-update-0.7.1 -Push
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tool\publish_gitee_update.ps1 -BundleDirectory build/app/outputs/flutter-apk/gitee-update-1.0.0
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tool\publish_gitee_update.ps1 -BundleDirectory build/app/outputs/flutter-apk/gitee-update-1.0.0 -Push
 ```
 
 完整的首次初始化、签名备份和日常发布步骤见 [Gitee 更新发布手册](docs/GITEE_UPDATE_RELEASE.md)。

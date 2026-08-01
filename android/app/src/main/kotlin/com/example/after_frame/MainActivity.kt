@@ -26,6 +26,7 @@ class MainActivity : FlutterActivity() {
     private lateinit var exportService: ExportService
     private lateinit var exportIndex: ExportIndex
     private lateinit var updateManager: AppUpdateManager
+    private lateinit var temporaryCache: TemporaryCacheManager
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -33,6 +34,7 @@ class MainActivity : FlutterActivity() {
         renderEngine = Media3RenderEngine(this)
         exportService = ExportService(this, executor, renderEngine, exportIndex)
         updateManager = AppUpdateManager(applicationContext)
+        temporaryCache = TemporaryCacheManager(cacheDir)
         updateManager.reconcileDownload()
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result -> handle(call, result) }
@@ -91,6 +93,11 @@ class MainActivity : FlutterActivity() {
                         .apply()
                     result.success(null)
                 }
+            }
+            "getTemporaryCacheUsage" -> background(result) { temporaryCache.usage() }
+            "clearTemporaryCache" -> background(result) {
+                temporaryCache.clear()
+                null
             }
             "getUpdateState" -> {
                 updateManager.reconcileDownload()
