@@ -42,5 +42,8 @@ void main() {
     expect(en.text('canvasSummary', {'count': 3}), 'Live Collage · 3 frames');
     expect(zh.text('singleFrameSummary'), contains('单帧'));
     expect(en.text('singleFrameSummary'), contains('Frame'));
+    expect(zh.text('addSource'), '添加素材');
+    expect(en.text('liveBadge'), 'LIVE');
+    expect(zh.text('addSourceHint', {'count': 2}), contains('2'));
   });
 }

@@ -11,7 +11,6 @@ import android.provider.MediaStore
 import android.util.Log
 import androidx.core.content.FileProvider
 import java.io.File
-import java.io.RandomAccessFile
 
 /** Durable work index with a MediaStore reconciliation fallback. */
 class ExportIndex(private val context: Context) :
@@ -471,39 +470,6 @@ class ExportIndex(private val context: Context) :
         val displayName = name.removeSuffix("MP.jpg")
         val destination = File(directory, "$displayName.mp4")
         if (destination.exists() && destination.length() > 0L) return destination
-
-        val headerSize = minOf(motionPhoto.length(), 1_048_576L).toInt()
-        val header = ByteArray(headerSize)
-        RandomAccessFile(motionPhoto, "r").use { source -> source.readFully(header) }
-        val xmp = header.toString(Charsets.ISO_8859_1)
-        val videoLength = Regex("Item:Length=\"(\\d+)\"")
-            .findAll(xmp)
-            .mapNotNull { it.groupValues[1].toLongOrNull() }
-            .lastOrNull()
-            ?: error("Motion Photo XMP does not declare a video length")
-        require(videoLength in 1 until motionPhoto.length()) { "Invalid Motion Photo video length" }
-
-        val pending = File(directory, ".${destination.name}.${System.nanoTime()}.tmp")
-        try {
-            RandomAccessFile(motionPhoto, "r").use { source ->
-                source.seek(motionPhoto.length() - videoLength)
-                pending.outputStream().use { output ->
-                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                    var remaining = videoLength
-                    while (remaining > 0) {
-                        val read = source.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
-                        check(read > 0) { "Unexpected end of Motion Photo" }
-                        output.write(buffer, 0, read)
-                        remaining -= read
-                    }
-                }
-            }
-            check(pending.length() == videoLength && pending.renameTo(destination)) {
-                "Unable to save recovered Motion Photo video"
-            }
-        } finally {
-            pending.delete()
-        }
-        return destination
+        return MotionPhotoSource.extract(motionPhoto, destination)
     }
 }

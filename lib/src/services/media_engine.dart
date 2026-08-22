@@ -80,6 +80,30 @@ class MediaEngine {
     }
   }
 
+  /// Turns a Live photo still into a playable MP4 asset. Videos are inspected
+  /// in place so Studio always receives a source the preview and export can use.
+  Future<MediaAsset> resolvePlayable(MediaAsset asset) async {
+    if (!asset.isMotionPhoto) return asset;
+    try {
+      final data = await _channel.invokeMapMethod<Object?, Object?>(
+        'resolvePlayableSource',
+        {'uri': asset.identity},
+      );
+      if (data == null) {
+        throw const MediaEngineException(
+          'LIVE_IMPORT_FAILED',
+          '无法读取这张 Live 图的动态画面',
+        );
+      }
+      return MediaAsset.fromMap(data);
+    } on PlatformException catch (error) {
+      throw MediaEngineException(
+        error.code,
+        error.message ?? '无法读取这张 Live 图的动态画面',
+      );
+    }
+  }
+
   Future<String> videoThumbnail(String uri) async {
     return _rememberFile(_thumbnailCache, uri, () => _videoThumbnail(uri));
   }
@@ -210,6 +234,7 @@ class MediaEngine {
     List<List<int>> collagePixelRects = const [],
     List<List<int>> sourceCropPixelRects = const [],
     List<List<int>> collageSourceSizes = const [],
+    List<int> collageCoverMs = const [],
     int canvasWidth = 1080,
     int canvasHeight = 1920,
     String format = 'motionPhoto',
@@ -240,6 +265,7 @@ class MediaEngine {
             'collagePixelRects': collagePixelRects,
             'sourceCropPixelRects': sourceCropPixelRects,
             'collageSourceSizes': collageSourceSizes,
+            'collageCoverMs': collageCoverMs,
             'canvasWidth': canvasWidth,
             'canvasHeight': canvasHeight,
             'format': format,

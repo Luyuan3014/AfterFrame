@@ -115,7 +115,7 @@ class _ThumbFrame extends StatelessWidget {
             fit: StackFit.expand,
             children: [
               FutureBuilder<String>(
-                future: engine.videoThumbnail(asset.uri),
+                future: engine.videoThumbnail(asset.thumbnailUri),
                 builder: (_, snapshot) {
                   final path = snapshot.data;
                   if (path == null || path.isEmpty) {

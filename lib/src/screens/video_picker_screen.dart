@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../features/motion_canvas/widgets/canvas_layout_thumb.dart';
 import '../models/live_rules.dart';
@@ -12,9 +13,16 @@ import '../theme.dart';
 import '../localization/app_localizations.dart';
 import '../widgets/media_preview_sheet.dart';
 
+enum _LibraryFilter { all, video, live }
+
 class VideoPickerScreen extends StatefulWidget {
-  const VideoPickerScreen({super.key, required this.engine});
+  const VideoPickerScreen({
+    super.key,
+    required this.engine,
+    this.initialSelection = const [],
+  });
   final MediaEngine engine;
+  final List<MediaAsset> initialSelection;
 
   @override
   State<VideoPickerScreen> createState() => _VideoPickerScreenState();
@@ -22,8 +30,9 @@ class VideoPickerScreen extends StatefulWidget {
 
 class _VideoPickerScreenState extends State<VideoPickerScreen> {
   final _scrollController = ScrollController();
-  final List<String> _selectedUris = [];
-  List<MediaAsset> _videos = const [];
+  final List<String> _selectedIds = [];
+  List<MediaAsset> _library = const [];
+  _LibraryFilter _filter = _LibraryFilter.all;
   bool _loading = true;
   bool _denied = false;
   bool _submitting = false;
@@ -33,6 +42,9 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
   @override
   void initState() {
     super.initState();
+    _selectedIds.addAll([
+      for (final asset in widget.initialSelection) asset.identity,
+    ]);
     _load();
   }
 
@@ -54,12 +66,12 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
         if (mounted) setState(() => _denied = true);
         return;
       }
-      final videos = await widget.engine.listVideos();
+      final library = await widget.engine.listVideos();
       if (mounted) {
-        final available = videos.map((item) => item.uri).toSet();
+        final available = {for (final item in library) item.identity};
         setState(() {
-          _videos = videos;
-          _selectedUris.removeWhere((uri) => !available.contains(uri));
+          _library = library;
+          _selectedIds.removeWhere((id) => !available.contains(id));
         });
       }
     } catch (error) {
@@ -69,44 +81,85 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
     }
   }
 
+  List<MediaAsset> get _visibleLibrary => switch (_filter) {
+    _LibraryFilter.all => _library,
+    _LibraryFilter.video => [
+      for (final item in _library)
+        if (!item.isMotionPhoto) item,
+    ],
+    _LibraryFilter.live => [
+      for (final item in _library)
+        if (item.isMotionPhoto) item,
+    ],
+  };
+
   void _toggle(MediaAsset item) {
     if (_submitting) return;
-    final index = _selectedUris.indexOf(item.uri);
+    HapticFeedback.selectionClick();
+    final index = _selectedIds.indexOf(item.identity);
     if (index >= 0) {
-      setState(() => _selectedUris.removeAt(index));
+      setState(() => _selectedIds.removeAt(index));
       return;
     }
-    if (_selectedUris.length >= maxLiveSources) {
+    if (_selectedIds.length >= maxLiveSources) {
       _message('sourceLimit');
       return;
     }
-    setState(() => _selectedUris.add(item.uri));
+    setState(() => _selectedIds.add(item.identity));
+  }
+
+  void _removeSelected(String id) {
+    if (_submitting) return;
+    setState(() => _selectedIds.remove(id));
+  }
+
+  void _reorderSelected(int oldIndex, int newIndex) {
+    if (_submitting) return;
+    setState(() {
+      if (newIndex > oldIndex) newIndex--;
+      final id = _selectedIds.removeAt(oldIndex);
+      _selectedIds.insert(newIndex.clamp(0, _selectedIds.length), id);
+    });
   }
 
   /// Selection order is the editorial order, so it is preserved verbatim.
   List<MediaAsset> get _selectedAssets {
-    final byUri = {for (final video in _videos) video.uri: video};
-    return _selectedUris
-        .map((uri) => byUri[uri])
+    final byId = {for (final item in _library) item.identity: item};
+    return _selectedIds
+        .map((id) => byId[id])
         .whereType<MediaAsset>()
         .toList(growable: false);
   }
 
-  Future<void> _preview(MediaAsset item) =>
-      showMediaPreview(context, uri: item.uri, title: item.name);
+  Future<void> _preview(MediaAsset item) async {
+    var uri = item.uri;
+    if (item.isMotionPhoto) {
+      try {
+        uri = (await widget.engine.resolvePlayable(item)).uri;
+      } catch (_) {
+        if (mounted) _message('errorLiveImport');
+        return;
+      }
+    }
+    if (!mounted) return;
+    await showMediaPreview(context, uri: uri, title: item.name);
+  }
 
   Future<void> _submit() async {
-    if (_selectedUris.isEmpty || _submitting) {
+    if (_selectedIds.isEmpty || _submitting) {
       return;
     }
     setState(() => _submitting = true);
     try {
-      // 直接使用已缓存的视频列表数据（listVideos 已通过 MediaStore
-      // 返回了 uri / name / durationMs / width / height），避免再次
-      // 使用 Android MediaMetadataRetriever 读取素材信息。
-      // getSafParameterForRead 处理 content URI 时可能 native crash。
-      final assets = _selectedAssets;
+      final assets = <MediaAsset>[];
+      for (final item in _selectedAssets) {
+        assets.add(
+          item.isMotionPhoto ? await widget.engine.resolvePlayable(item) : item,
+        );
+      }
       if (mounted && assets.isNotEmpty) Navigator.pop(context, assets);
+    } catch (_) {
+      if (mounted) _message('errorLiveImport');
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -144,12 +197,12 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
             ),
             Text(
-              _selectedUris.isEmpty
+              _selectedIds.isEmpty
                   ? l10n.text('pickHint')
-                  : l10n.text('selectedCount', {'count': _selectedUris.length}),
+                  : l10n.text('selectedCount', {'count': _selectedIds.length}),
               style: TextStyle(
                 fontSize: 11,
-                color: _selectedUris.isEmpty
+                color: _selectedIds.isEmpty
                     ? AfterFrameColors.muted
                     : AfterFrameColors.lime,
               ),
@@ -162,7 +215,7 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
         duration: const Duration(milliseconds: 260),
         curve: Curves.easeOutCubic,
         alignment: Alignment.topCenter,
-        child: _selectedUris.isEmpty
+        child: _selectedIds.isEmpty
             ? const SizedBox(width: double.infinity)
             : _CompositionBar(
                 assets: _selectedAssets,
@@ -181,27 +234,48 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
       );
     }
     if (_denied) return _PermissionEmpty(onRetry: _load);
-    if (_videos.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.video_library_outlined,
-              size: 72,
-              color: Colors.white24,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              context.l10n.text('libraryEmpty'),
-              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              context.l10n.text('libraryEmptyHint'),
-              style: const TextStyle(color: AfterFrameColors.muted),
-            ),
-          ],
+    return Column(
+      children: [
+        _LibraryFilters(
+          filter: _filter,
+          videoCount: _library.where((item) => !item.isMotionPhoto).length,
+          liveCount: _library.where((item) => item.isMotionPhoto).length,
+          onChanged: (value) => setState(() => _filter = value),
+        ),
+        if (_selectedAssets.isNotEmpty)
+          _SelectedStrip(
+            assets: _selectedAssets,
+            engine: widget.engine,
+            onRemove: _removeSelected,
+            onReorder: _reorderSelected,
+            onPreview: _preview,
+          ),
+        Expanded(child: _libraryBody()),
+      ],
+    );
+  }
+
+  Widget _libraryBody() {
+    if (_library.isEmpty) {
+      return _LibraryEmpty(
+        icon: Icons.photo_library_outlined,
+        title: context.l10n.text('libraryEmpty'),
+        detail: context.l10n.text('libraryEmptyHint'),
+      );
+    }
+    final visible = _visibleLibrary;
+    if (visible.isEmpty) {
+      return _LibraryEmpty(
+        icon: _filter == _LibraryFilter.live
+            ? Icons.motion_photos_on_outlined
+            : Icons.videocam_outlined,
+        title: context.l10n.text(
+          _filter == _LibraryFilter.live ? 'libraryEmptyLive' : 'libraryEmpty',
+        ),
+        detail: context.l10n.text(
+          _filter == _LibraryFilter.live
+              ? 'libraryEmptyLiveHint'
+              : 'libraryEmptyHint',
         ),
       );
     }
@@ -220,19 +294,19 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
           onRefresh: _load,
           child: GridView.builder(
             controller: _scrollController,
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 28),
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 28),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 3,
               mainAxisSpacing: 4,
               crossAxisSpacing: 4,
               childAspectRatio: .76,
             ),
-            itemCount: _videos.length,
+            itemCount: visible.length,
             itemBuilder: (_, index) {
-              final asset = _videos[index];
-              final selectedIndex = _selectedUris.indexOf(asset.uri);
+              final asset = visible[index];
+              final selectedIndex = _selectedIds.indexOf(asset.identity);
               return _VideoTile(
-                key: ValueKey(asset.uri),
+                key: ValueKey(asset.identity),
                 asset: asset,
                 engine: widget.engine,
                 selectionOrder: selectedIndex < 0 ? null : selectedIndex + 1,
@@ -241,6 +315,251 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
               );
             },
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LibraryFilters extends StatelessWidget {
+  const _LibraryFilters({
+    required this.filter,
+    required this.videoCount,
+    required this.liveCount,
+    required this.onChanged,
+  });
+
+  final _LibraryFilter filter;
+  final int videoCount;
+  final int liveCount;
+  final ValueChanged<_LibraryFilter> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+      child: Row(
+        children: [
+          _FilterChip(
+            label: l10n.text('pickFilterAll'),
+            selected: filter == _LibraryFilter.all,
+            onTap: () => onChanged(_LibraryFilter.all),
+          ),
+          const SizedBox(width: 8),
+          _FilterChip(
+            label: l10n.text('pickFilterVideo'),
+            count: videoCount,
+            selected: filter == _LibraryFilter.video,
+            onTap: () => onChanged(_LibraryFilter.video),
+          ),
+          const SizedBox(width: 8),
+          _FilterChip(
+            label: l10n.text('pickFilterLive'),
+            count: liveCount,
+            selected: filter == _LibraryFilter.live,
+            live: true,
+            onTap: () => onChanged(_LibraryFilter.live),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FilterChip extends StatelessWidget {
+  const _FilterChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.count,
+    this.live = false,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final int? count;
+  final bool live;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? AfterFrameColors.lime : AfterFrameColors.panelSoft,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (live) ...[
+                Icon(
+                  Icons.motion_photos_on_rounded,
+                  size: 14,
+                  color: selected ? AfterFrameColors.ink : AfterFrameColors.lime,
+                ),
+                const SizedBox(width: 5),
+              ],
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: selected ? AfterFrameColors.ink : Colors.white,
+                ),
+              ),
+              if (count != null) ...[
+                const SizedBox(width: 5),
+                Text(
+                  '$count',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: selected
+                        ? AfterFrameColors.ink.withValues(alpha: .62)
+                        : AfterFrameColors.muted,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SelectedStrip extends StatelessWidget {
+  const _SelectedStrip({
+    required this.assets,
+    required this.engine,
+    required this.onRemove,
+    required this.onReorder,
+    required this.onPreview,
+  });
+
+  final List<MediaAsset> assets;
+  final MediaEngine engine;
+  final ValueChanged<String> onRemove;
+  final void Function(int oldIndex, int newIndex) onReorder;
+  final ValueChanged<MediaAsset> onPreview;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 92,
+      child: ReorderableListView.builder(
+        scrollDirection: Axis.horizontal,
+        buildDefaultDragHandles: false,
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+        itemCount: assets.length,
+        onReorder: onReorder,
+        proxyDecorator: (child, _, animation) => ScaleTransition(
+          scale: Tween(begin: 1.0, end: 1.06).animate(animation),
+          child: child,
+        ),
+        itemBuilder: (context, index) {
+          final asset = assets[index];
+          return ReorderableDelayedDragStartListener(
+            key: ValueKey(asset.identity),
+            index: index,
+            child: _SelectedThumb(
+              asset: asset,
+              engine: engine,
+              order: index + 1,
+              onRemove: () => onRemove(asset.identity),
+              onPreview: () => onPreview(asset),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _SelectedThumb extends StatelessWidget {
+  const _SelectedThumb({
+    required this.asset,
+    required this.engine,
+    required this.order,
+    required this.onRemove,
+    required this.onPreview,
+  });
+
+  final MediaAsset asset;
+  final MediaEngine engine;
+  final int order;
+  final VoidCallback onRemove;
+  final VoidCallback onPreview;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: SizedBox(
+        width: 62,
+        height: 78,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned.fill(
+              child: Material(
+                color: AfterFrameColors.panelSoft,
+                borderRadius: BorderRadius.circular(14),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: onPreview,
+                  child: FutureBuilder<String>(
+                    future: engine.videoThumbnail(asset.thumbnailUri),
+                    builder: (_, snapshot) {
+                      final path = snapshot.data;
+                      if (path == null || path.isEmpty) {
+                        return const ColoredBox(color: Color(0xFF292A2F));
+                      }
+                      return Image.file(
+                        File(path),
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) =>
+                            const ColoredBox(color: Color(0xFF292A2F)),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 5,
+              top: 5,
+              child: _OrderBadge(order: order),
+            ),
+            if (asset.isMotionPhoto)
+              const Positioned(
+                right: 5,
+                bottom: 5,
+                child: _LiveMark(compact: true),
+              ),
+            Positioned(
+              right: -4,
+              top: -4,
+              child: IconButton.filled(
+                visualDensity: VisualDensity.compact,
+                constraints: const BoxConstraints.tightFor(
+                  width: 22,
+                  height: 22,
+                ),
+                padding: EdgeInsets.zero,
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.black87,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: onRemove,
+                icon: const Icon(Icons.close_rounded, size: 13),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -269,10 +588,12 @@ class _VideoTileState extends State<_VideoTile> {
   late Future<String> _thumbnail = _loadThumbnail();
 
   Future<String> _loadThumbnail() =>
-      widget.engine.videoThumbnail(widget.asset.uri);
+      widget.engine.videoThumbnail(widget.asset.thumbnailUri);
 
   void _retryThumbnail() => setState(
-    () => _thumbnail = widget.engine.refreshVideoThumbnail(widget.asset.uri),
+    () => _thumbnail = widget.engine.refreshVideoThumbnail(
+      widget.asset.thumbnailUri,
+    ),
   );
 
   @override
@@ -359,6 +680,12 @@ class _VideoTileState extends State<_VideoTile> {
                       : null,
                 ),
               ),
+              if (widget.asset.isMotionPhoto)
+                const Positioned(
+                  left: 7,
+                  top: 7,
+                  child: _LiveMark(),
+                ),
               Positioned(
                 right: 5,
                 bottom: 4,
@@ -371,7 +698,12 @@ class _VideoTileState extends State<_VideoTile> {
                   ),
                   padding: EdgeInsets.zero,
                   onPressed: widget.onPreview,
-                  icon: const Icon(Icons.play_arrow_rounded, size: 19),
+                  icon: Icon(
+                    widget.asset.isMotionPhoto
+                        ? Icons.motion_photos_on_rounded
+                        : Icons.play_arrow_rounded,
+                    size: 18,
+                  ),
                 ),
               ),
               Positioned(
@@ -388,7 +720,13 @@ class _VideoTileState extends State<_VideoTile> {
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.play_arrow_rounded, size: 13),
+                      Icon(
+                        widget.asset.isMotionPhoto
+                            ? Icons.motion_photos_on_rounded
+                            : Icons.play_arrow_rounded,
+                        size: 13,
+                      ),
+                      const SizedBox(width: 2),
                       Text(
                         widget.asset.durationLabel,
                         style: const TextStyle(
@@ -408,6 +746,63 @@ class _VideoTileState extends State<_VideoTile> {
   }
 }
 
+class _LiveMark extends StatelessWidget {
+  const _LiveMark({this.compact = false});
+
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 4 : 6,
+        vertical: compact ? 2 : 3,
+      ),
+      decoration: BoxDecoration(
+        color: AfterFrameColors.lime,
+        borderRadius: BorderRadius.circular(7),
+        boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 6)],
+      ),
+      child: Text(
+        context.l10n.text('liveBadge'),
+        style: TextStyle(
+          color: AfterFrameColors.ink,
+          fontSize: compact ? 7 : 8,
+          fontWeight: FontWeight.w900,
+          letterSpacing: compact ? 0.4 : 0.7,
+        ),
+      ),
+    );
+  }
+}
+
+class _OrderBadge extends StatelessWidget {
+  const _OrderBadge({required this.order});
+
+  final int order;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 18,
+      height: 18,
+      alignment: Alignment.center,
+      decoration: const BoxDecoration(
+        color: AfterFrameColors.lime,
+        shape: BoxShape.circle,
+      ),
+      child: Text(
+        '$order',
+        style: const TextStyle(
+          color: AfterFrameColors.ink,
+          fontSize: 10,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
 class _ThumbnailRetry extends StatelessWidget {
   const _ThumbnailRetry({required this.onRetry});
 
@@ -421,6 +816,45 @@ class _ThumbnailRetry extends StatelessWidget {
       icon: const Icon(Icons.refresh_rounded, color: Colors.white54),
     ),
   );
+}
+
+class _LibraryEmpty extends StatelessWidget {
+  const _LibraryEmpty({
+    required this.icon,
+    required this.title,
+    required this.detail,
+  });
+
+  final IconData icon;
+  final String title;
+  final String detail;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 72, color: Colors.white24),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              detail,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: AfterFrameColors.muted),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// Announces the work the current selection will produce.
@@ -473,9 +907,6 @@ class _CompositionBar extends StatelessWidget {
                 const SizedBox(width: 13),
                 Expanded(
                   child: Column(
-                    // The bottom slot offers the whole screen height, so the bar
-                    // must measure itself from its content or it would cover the
-                    // library and swallow every tap.
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -541,8 +972,6 @@ class _CompositionBar extends StatelessWidget {
                   onPressed: loading ? null : onSubmit,
                   style: FilledButton.styleFrom(
                     minimumSize: const Size(0, 48),
-                    // Keeps a long label or a large text scale from starving the
-                    // announcement next to it.
                     maximumSize: const Size(176, double.infinity),
                     padding: const EdgeInsets.symmetric(horizontal: 18),
                   ),
@@ -589,7 +1018,7 @@ class _PermissionEmpty extends StatelessWidget {
                 shape: BoxShape.circle,
               ),
               child: const Icon(
-                Icons.video_library_rounded,
+                Icons.photo_library_rounded,
                 color: AfterFrameColors.lime,
                 size: 36,
               ),

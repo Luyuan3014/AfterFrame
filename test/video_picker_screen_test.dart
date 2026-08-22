@@ -18,6 +18,18 @@ void main() {
     'rotation': 0,
   };
 
+  Map<String, Object?> livePhoto() => {
+    'uri': 'content://images/live',
+    'name': 'MVIMG_001.jpg',
+    'durationMs': 0,
+    'width': 1080,
+    'height': 1920,
+    'rotation': 0,
+    'kind': 'motionPhoto',
+    'libraryUri': 'content://images/live',
+    'stillUri': 'content://images/live',
+  };
+
   setUp(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
@@ -25,9 +37,18 @@ void main() {
             case 'requestVideoAccess':
               return true;
             case 'listVideos':
-              return [for (var index = 0; index < 9; index++) video(index)];
+              return [
+                for (var index = 0; index < 9; index++) video(index),
+                livePhoto(),
+              ];
             case 'videoThumbnail':
               return '';
+            case 'resolvePlayableSource':
+              return {
+                ...livePhoto(),
+                'uri': 'file:///cache/live.mp4',
+                'durationMs': 2800,
+              };
             default:
               return null;
           }
@@ -95,7 +116,7 @@ void main() {
     expect(find.text('room for 2 more'), findsOneWidget);
 
     await pick(tester, 1);
-    expect(find.text('2 videos selected'), findsOneWidget);
+    expect(find.text('2 selected'), findsOneWidget);
     expect(find.text('Live Collage · 2 frames'), findsOneWidget);
 
     await pick(tester, 2);
@@ -115,7 +136,7 @@ void main() {
 
     expect(find.text('A moment holds up to 3 clips'), findsOneWidget);
     expect(
-      find.text('$maxLiveSources videos selected'),
+      find.text('$maxLiveSources selected'),
       findsOneWidget,
       reason: 'an over-limit tap must not drop or replace chosen sources',
     );
@@ -130,5 +151,30 @@ void main() {
     await pick(tester, 0);
     expect(find.text('Enter Studio'), findsNothing);
     expect(find.byType(GridView), findsOneWidget);
+  });
+
+  testWidgets('the Live filter isolates motion photos', (tester) async {
+    await pumpPicker(tester);
+
+    await tester.tap(find.text('Live'));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.byKey(const ValueKey('content://video/0')), findsNothing);
+    expect(find.byKey(const ValueKey('content://images/live')), findsOneWidget);
+    expect(find.text('LIVE'), findsWidgets);
+  });
+
+  testWidgets('a Live photo can be chosen as the first Studio source', (
+    tester,
+  ) async {
+    await pumpPicker(tester);
+    await tester.tap(find.text('Live'));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.byKey(const ValueKey('content://images/live')));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('1 selected'), findsOneWidget);
+    expect(find.text('Live Frame · original framing'), findsOneWidget);
+    expect(find.text('Enter Studio'), findsOneWidget);
   });
 }

@@ -50,6 +50,7 @@ class MotionClip {
     required this.trimEndMs,
     required this.focus,
     required this.subject,
+    this.coverMs,
     this.thumbnailPath,
   });
 
@@ -61,21 +62,32 @@ class MotionClip {
   final SubjectKind subject;
   final String? thumbnailPath;
 
+  /// Absolute source time used as this tile's still / Motion Photo cover.
+  final int? coverMs;
+
   int get durationMs => trimEndMs - trimStartMs;
 
+  int get resolvedCoverMs => (coverMs ?? (trimStartMs + durationMs ~/ 2)).clamp(
+    trimStartMs,
+    trimEndMs,
+  );
+
   MotionClip copyWith({
+    MediaAsset? asset,
     int? trimStartMs,
     int? trimEndMs,
     CropFocus? focus,
     SubjectKind? subject,
     String? thumbnailPath,
+    int? coverMs,
   }) => MotionClip(
     id: id,
-    asset: asset,
+    asset: asset ?? this.asset,
     trimStartMs: trimStartMs ?? this.trimStartMs,
     trimEndMs: trimEndMs ?? this.trimEndMs,
     focus: focus ?? this.focus,
     subject: subject ?? this.subject,
     thumbnailPath: thumbnailPath ?? this.thumbnailPath,
+    coverMs: coverMs ?? this.coverMs,
   );
 }

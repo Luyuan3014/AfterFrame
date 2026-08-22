@@ -30,9 +30,7 @@ class StudioCanvasPreview extends StatelessWidget {
     animation: controller,
     builder: (context, _) {
       final plan = controller.canvasPlan;
-      final maxHeight = fullscreen
-          ? MediaQuery.sizeOf(context).height
-          : 430.0;
+      final maxHeight = fullscreen ? MediaQuery.sizeOf(context).height : 430.0;
       return Padding(
         padding: fullscreen
             ? const EdgeInsets.symmetric(horizontal: 8)
@@ -55,9 +53,7 @@ class StudioCanvasPreview extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: const Color(0xFF111216),
                   borderRadius: BorderRadius.circular(fullscreen ? 20 : 32),
-                  border: fullscreen
-                      ? null
-                      : Border.all(color: Colors.white10),
+                  border: fullscreen ? null : Border.all(color: Colors.white10),
                   boxShadow: fullscreen
                       ? null
                       : const [
@@ -173,11 +169,13 @@ class StudioCanvasTools extends StatelessWidget {
     required this.controller,
     required this.onEditClip,
     required this.onRemoveClip,
+    this.onAddClip,
   });
 
   final MotionCanvasController controller;
   final ValueChanged<int> onEditClip;
   final ValueChanged<int> onRemoveClip;
+  final VoidCallback? onAddClip;
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
@@ -191,6 +189,7 @@ class StudioCanvasTools extends StatelessWidget {
           controller: controller,
           onEditClip: onEditClip,
           onRemoveClip: onRemoveClip,
+          onAddClip: onAddClip,
         ),
         const SizedBox(height: 24),
         _CanvasAdvancedSettings(controller: controller),
@@ -204,93 +203,186 @@ class _CanvasCoverSelector extends StatelessWidget {
   final MotionCanvasController controller;
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  context.l10n.text('coverMoment'),
-                  style: const TextStyle(
-                    color: AfterFrameColors.lime,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1.6,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  context.l10n.text('chooseCover'),
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Text(
-            formatEditorTime(controller.positionMs),
-            style: const TextStyle(
-              color: AfterFrameColors.lime,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              fontFeatures: [FontFeature.tabularFigures()],
-            ),
-          ),
-        ],
-      ),
-      const SizedBox(height: 13),
-      Container(
-        height: 72,
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: .22),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AfterFrameColors.glassBorder),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Stack(
-          fit: StackFit.expand,
+  Widget build(BuildContext context) {
+    final clip = controller.activeClip;
+    final minMs = clip.trimStartMs.toDouble();
+    final maxMs = clip.trimEndMs.toDouble().clamp(minMs + 1, double.infinity);
+    final coverMs = clip.resolvedCoverMs.toDouble().clamp(minMs, maxMs);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
           children: [
-            Row(
-              children: [
-                for (final clip in controller.clips)
-                  Expanded(
-                    child: clip.thumbnailPath == null
-                        ? const ColoredBox(color: Color(0xFF202126))
-                        : Image.file(
-                            File(clip.thumbnailPath!),
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, _, _) =>
-                                const ColoredBox(color: Color(0xFF202126)),
-                          ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    context.l10n.text('coverMoment'),
+                    style: const TextStyle(
+                      color: AfterFrameColors.lime,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.6,
+                    ),
                   ),
-              ],
-            ),
-            ColoredBox(color: Colors.black.withValues(alpha: .18)),
-            SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                trackHeight: 0,
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 9),
-                overlayShape: const RoundSliderOverlayShape(overlayRadius: 18),
-                thumbColor: AfterFrameColors.lime,
-                overlayColor: AfterFrameColors.lime.withValues(alpha: .14),
+                  const SizedBox(height: 4),
+                  Text(
+                    context.l10n.text('chooseCover'),
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ),
-              child: Slider(
-                min: 0,
-                max: controller.durationMs.toDouble(),
-                value: controller.positionMs.toDouble(),
-                onChanged: (value) => controller.setPosition(value.round()),
+            ),
+            Text(
+              formatEditorTime(clip.resolvedCoverMs),
+              style: const TextStyle(
+                color: AfterFrameColors.lime,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                fontFeatures: [FontFeature.tabularFigures()],
               ),
             ),
           ],
         ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (var index = 0; index < controller.clips.length; index++)
+              _CoverClipChip(
+                label: context.l10n.text('coverClipLabel', {
+                  'index': index + 1,
+                }),
+                selected: index == controller.activeClipIndex,
+                live: controller.clips[index].asset.isMotionPhoto,
+                onTap: () => controller.selectClip(index),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          context.l10n.text('chooseCoverHint'),
+          style: const TextStyle(
+            fontSize: 11,
+            height: 1.4,
+            color: AfterFrameColors.muted,
+          ),
+        ),
+        const SizedBox(height: 13),
+        Container(
+          height: 72,
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: .22),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AfterFrameColors.glassBorder),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              clip.thumbnailPath == null
+                  ? const ColoredBox(color: Color(0xFF202126))
+                  : Image.file(
+                      File(clip.thumbnailPath!),
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) =>
+                          const ColoredBox(color: Color(0xFF202126)),
+                    ),
+              ColoredBox(color: Colors.black.withValues(alpha: .18)),
+              SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 0,
+                  thumbShape: const RoundSliderThumbShape(
+                    enabledThumbRadius: 9,
+                  ),
+                  overlayShape: const RoundSliderOverlayShape(
+                    overlayRadius: 18,
+                  ),
+                  thumbColor: AfterFrameColors.lime,
+                  overlayColor: AfterFrameColors.lime.withValues(alpha: .14),
+                ),
+                child: Slider(
+                  min: minMs,
+                  max: maxMs,
+                  value: coverMs,
+                  onChanged: (value) => controller.setClipCover(
+                    controller.activeClipIndex,
+                    value.round(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CoverClipChip extends StatelessWidget {
+  const _CoverClipChip({
+    required this.label,
+    required this.selected,
+    required this.live,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final bool live;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: AnimatedContainer(
+      duration: MotionCanvasController.motion,
+      curve: MotionCanvasController.curve,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: selected
+            ? AfterFrameColors.lime.withValues(alpha: .16)
+            : Colors.white.withValues(alpha: .05),
+        borderRadius: BorderRadius.circular(99),
+        border: Border.all(
+          color: selected
+              ? AfterFrameColors.lime.withValues(alpha: .7)
+              : Colors.white12,
+        ),
       ),
-    ],
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: selected ? AfterFrameColors.lime : Colors.white70,
+            ),
+          ),
+          if (live) ...[
+            const SizedBox(width: 6),
+            Text(
+              context.l10n.text('liveBadge'),
+              style: TextStyle(
+                fontSize: 8,
+                fontWeight: FontWeight.w900,
+                letterSpacing: .4,
+                color: selected
+                    ? AfterFrameColors.lime
+                    : AfterFrameColors.muted,
+              ),
+            ),
+          ],
+        ],
+      ),
+    ),
   );
 }
 
@@ -299,10 +391,12 @@ class _CanvasClipTimeline extends StatelessWidget {
     required this.controller,
     required this.onEditClip,
     required this.onRemoveClip,
+    this.onAddClip,
   });
   final MotionCanvasController controller;
   final ValueChanged<int> onEditClip;
   final ValueChanged<int> onRemoveClip;
+  final VoidCallback? onAddClip;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -345,6 +439,7 @@ class _CanvasClipTimeline extends StatelessWidget {
         controller: controller,
         onEdit: onEditClip,
         onRemove: onRemoveClip,
+        onAdd: onAddClip,
       ),
       const SizedBox(height: 7),
       Text(

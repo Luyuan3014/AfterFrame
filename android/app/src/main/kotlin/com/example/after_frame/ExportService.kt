@@ -99,9 +99,13 @@ class ExportService(
     }
 
     private fun extractRenderedCover(call: MethodCall, mp4: File, work: File): File {
+        val coverTimes = call.argument<List<Number>>("collageCoverMs").orEmpty().map { it.toLong() }
+        if (coverTimes.size > 1) {
+            runCatching { composeCollageStill(call, work, coverTimes) }.getOrNull()?.let { return it }
+        }
         val startMs = call.argument<Number>("startMs")!!.toLong()
         val endMs = call.argument<Number>("endMs")!!.toLong()
-        val coverMs = call.argument<Number>("coverMs")!!.toLong()
+        val coverMs = coverTimes.firstOrNull() ?: call.argument<Number>("coverMs")!!.toLong()
         val speed = (call.argument<Number>("playbackSpeed")?.toDouble() ?: 1.0).coerceIn(.5, 2.0)
         val presentationUs =
             ((coverMs - startMs).coerceIn(0, endMs - startMs) / speed * 1_000).toLong()
@@ -126,6 +130,92 @@ class ExportService(
         }
         check(output.isFile && output.length() > 0L) { "Canvas First 封面为空" }
         return output
+    }
+
+    private fun composeCollageStill(
+        call: MethodCall,
+        work: File,
+        coverTimes: List<Long>,
+    ): File {
+        val canvasWidth = call.argument<Number>("canvasWidth")!!.toInt()
+        val canvasHeight = call.argument<Number>("canvasHeight")!!.toInt()
+        val uris = call.argument<List<String>>("collageUris").orEmpty()
+        val slots = numberRows(call, "collagePixelRects")
+        val crops = numberRows(call, "sourceCropPixelRects")
+        val sizes = numberRows(call, "collageSourceSizes")
+        require(uris.size > 1 && uris.size == coverTimes.size) { "拼图封面缺少独立时间点" }
+        require(
+            slots.size == uris.size && crops.size == uris.size && sizes.size == uris.size,
+        ) { "拼图封面缺少 Frame / Smart Crop 像素" }
+
+        val composed = android.graphics.Bitmap.createBitmap(
+            canvasWidth,
+            canvasHeight,
+            android.graphics.Bitmap.Config.ARGB_8888,
+        )
+        val canvas = android.graphics.Canvas(composed)
+        canvas.drawColor(android.graphics.Color.BLACK)
+        val paint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
+        try {
+            for (index in uris.indices) {
+                val slot = slots[index]
+                val crop = crops[index]
+                val sourceSize = sizes[index]
+                require(slot.size >= 4 && crop.size >= 4 && sourceSize.size >= 2) {
+                    "第 ${index + 1} 段封面几何不完整"
+                }
+                val frame = decodeSourceFrame(Uri.parse(uris[index]), coverTimes[index])
+                try {
+                    val sourceWidth = sourceSize[0].toFloat().coerceAtLeast(1f)
+                    val sourceHeight = sourceSize[1].toFloat().coerceAtLeast(1f)
+                    val scaleX = frame.width / sourceWidth
+                    val scaleY = frame.height / sourceHeight
+                    val src = android.graphics.Rect(
+                        (crop[0].toFloat() * scaleX).toInt().coerceIn(0, frame.width - 1),
+                        (crop[1].toFloat() * scaleY).toInt().coerceIn(0, frame.height - 1),
+                        ((crop[0].toFloat() + crop[2].toFloat()) * scaleX).toInt()
+                            .coerceIn(1, frame.width),
+                        ((crop[1].toFloat() + crop[3].toFloat()) * scaleY).toInt()
+                            .coerceIn(1, frame.height),
+                    )
+                    val dst = android.graphics.Rect(
+                        slot[0].toInt(),
+                        slot[1].toInt(),
+                        slot[0].toInt() + slot[2].toInt(),
+                        slot[1].toInt() + slot[3].toInt(),
+                    )
+                    canvas.drawBitmap(frame, src, dst, paint)
+                } finally {
+                    frame.recycle()
+                }
+            }
+            val output = File(work, "canvas-cover.jpg")
+            FileOutputStream(output).use { stream ->
+                check(composed.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, stream)) {
+                    "无法编码独立封面拼图"
+                }
+            }
+            check(output.isFile && output.length() > 0L) { "独立封面拼图为空" }
+            return output
+        } finally {
+            composed.recycle()
+        }
+    }
+
+    private fun decodeSourceFrame(uri: Uri, timeMs: Long): android.graphics.Bitmap {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            if (uri.scheme == "file") {
+                retriever.setDataSource(uri.path)
+            } else {
+                retriever.setDataSource(context, uri)
+            }
+            requireNotNull(
+                retriever.getFrameAtTime(timeMs * 1_000L, MediaMetadataRetriever.OPTION_CLOSEST),
+            ) { "无法读取素材封面 $timeMs" }
+        } finally {
+            retriever.release()
+        }
     }
 
     private fun publishMotionPhoto(
@@ -245,6 +335,13 @@ class ExportService(
 
     private fun removePublished(uri: Uri) {
         runCatching { if (uri.scheme == "file") File(uri.path!!).delete() else context.contentResolver.delete(uri, null, null) }
+    }
+
+    private fun numberRows(call: MethodCall, key: String): List<List<Number>> {
+        return call.argument<List<*>>(key).orEmpty().mapNotNull { encoded ->
+            val values = encoded as? List<*> ?: return@mapNotNull null
+            values.mapNotNull { it as? Number }.takeIf { it.size == values.size }
+        }
     }
 }
 

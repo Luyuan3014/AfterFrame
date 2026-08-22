@@ -14,13 +14,12 @@ class MotionCanvasExportService {
   ) async {
     final first = canvas.clips.first;
     final plan = canvas.canvasPlan;
-    final coverMs =
-        first.trimStartMs + canvas.positionMs.clamp(0, first.durationMs);
+    final coverMs = first.resolvedCoverMs;
     final coverPath = await engine.extractFrame(first.asset.uri, coverMs);
     final published = await engine.exportLive(
       asset: first.asset,
       startMs: first.trimStartMs,
-      endMs: first.trimEndMs,
+      endMs: first.trimStartMs + canvas.durationMs,
       coverMs: coverMs,
       coverPath: coverPath,
       keepAudio: canvas.audioEnabled,
@@ -33,9 +32,15 @@ class MotionCanvasExportService {
       collageLayout: 0,
       collageAudioSourceIndex: 0,
       collageStartMs: canvas.clips.map((clip) => clip.trimStartMs).toList(),
-      collageEndMs: canvas.clips
-          .map((clip) => clip.trimStartMs + canvas.durationMs)
-          .toList(),
+      collageEndMs: canvas.clips.map((clip) {
+        final end = clip.trimStartMs + canvas.durationMs;
+        if (end > clip.trimEndMs) return clip.trimEndMs;
+        if (end <= clip.trimStartMs) return clip.trimEndMs;
+        return end;
+      }).toList(),
+      collageCoverMs: canvas.clips
+          .map((clip) => clip.resolvedCoverMs)
+          .toList(growable: false),
       motionTransition: 0,
       canvasWidth: plan.canvas.width,
       canvasHeight: plan.canvas.height,

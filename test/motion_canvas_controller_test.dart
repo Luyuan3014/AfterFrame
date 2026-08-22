@@ -84,46 +84,43 @@ void main() {
     expect(controller.durationMs, 2000);
   });
 
-  test(
-    'adaptive canvas preserves source framing without forced 9:16 crop',
-    () {
-      const layout = MotionCanvasLayout();
-      final widePlan = layout.planFor(const [
-        CanvasSourceGeometry(width: 1920, height: 1080),
-        CanvasSourceGeometry(width: 1920, height: 1080),
-      ]);
-      final mixedPlan = layout.planFor(const [
+  test('adaptive canvas preserves source framing without forced 9:16 crop', () {
+    const layout = MotionCanvasLayout();
+    final widePlan = layout.planFor(const [
+      CanvasSourceGeometry(width: 1920, height: 1080),
+      CanvasSourceGeometry(width: 1920, height: 1080),
+    ]);
+    final mixedPlan = layout.planFor(const [
+      CanvasSourceGeometry(width: 1080, height: 1920),
+      CanvasSourceGeometry(width: 1920, height: 1080),
+      CanvasSourceGeometry(width: 1080, height: 1080),
+    ]);
+
+    expect(widePlan.kind, AdaptiveLayoutKind.verticalTimeFlow);
+    // Stacked landscapes derive a near-square canvas, not a skinny 9:16 card.
+    expect(widePlan.canvas.aspectRatio, greaterThan(.8));
+    expect(widePlan.canvas.aspectRatio, lessThan(1.1));
+    expect(mixedPlan.frames, hasLength(3));
+    for (var index = 0; index < mixedPlan.frames.length; index++) {
+      final frame = mixedPlan.frames[index];
+      final source = const [
         CanvasSourceGeometry(width: 1080, height: 1920),
         CanvasSourceGeometry(width: 1920, height: 1080),
         CanvasSourceGeometry(width: 1080, height: 1080),
-      ]);
-
-      expect(widePlan.kind, AdaptiveLayoutKind.verticalTimeFlow);
-      // Stacked landscapes derive a near-square canvas, not a skinny 9:16 card.
-      expect(widePlan.canvas.aspectRatio, greaterThan(.8));
-      expect(widePlan.canvas.aspectRatio, lessThan(1.1));
-      expect(mixedPlan.frames, hasLength(3));
-      for (var index = 0; index < mixedPlan.frames.length; index++) {
-        final frame = mixedPlan.frames[index];
-        final source = const [
-          CanvasSourceGeometry(width: 1080, height: 1920),
-          CanvasSourceGeometry(width: 1920, height: 1080),
-          CanvasSourceGeometry(width: 1080, height: 1080),
-        ][index];
-        expect(frame.crop.width * source.width, closeTo(frame.rect.width, .01));
-        expect(
-          frame.crop.height * source.height,
-          closeTo(frame.rect.height, .01),
-        );
-        // Full native pixels when the arrangement fits the export bound.
-        expect(frame.retainedSourceFraction, closeTo(1, .001));
-        expect(
-          frame.rect.width / frame.rect.height,
-          closeTo(source.width / source.height, .01),
-        );
-      }
-    },
-  );
+      ][index];
+      expect(frame.crop.width * source.width, closeTo(frame.rect.width, .01));
+      expect(
+        frame.crop.height * source.height,
+        closeTo(frame.rect.height, .01),
+      );
+      // Full native pixels when the arrangement fits the export bound.
+      expect(frame.retainedSourceFraction, closeTo(1, .001));
+      expect(
+        frame.rect.width / frame.rect.height,
+        closeTo(source.width / source.height, .01),
+      );
+    }
+  });
 
   test('two landscape clips use full-width stacked cells', () {
     final controller = MotionCanvasController(
@@ -231,6 +228,127 @@ void main() {
     expect(controller.clips.first.id, portraitId);
     expect(controller.clips.first.thumbnailPath, 'portrait.jpg');
     expect(controller.clips.last.thumbnailPath, isNull);
+  });
+
+  test('replacing sources keeps edits on clips that stay in the set', () {
+    final controller = MotionCanvasController(
+      assets: const [landscape, portrait],
+    );
+    addTearDown(controller.dispose);
+    controller.setTrim(0, 400, 2400);
+
+    const live = MediaAsset(
+      uri: 'file:///cache/live.mp4',
+      name: 'MVIMG.jpg',
+      durationMs: 2800,
+      width: 1080,
+      height: 1920,
+      rotation: 0,
+      kind: MediaKind.motionPhoto,
+      libraryUri: 'content://images/live',
+      stillUri: 'content://images/live',
+    );
+    controller.replaceSources(const [landscape, live]);
+
+    expect(controller.clips, hasLength(2));
+    expect(controller.clips.first.trimStartMs, 400);
+    expect(controller.clips.first.trimEndMs, 2400);
+    expect(controller.clips.last.asset.isMotionPhoto, isTrue);
+    expect(controller.canAddClip, isTrue);
+  });
+
+  test(
+    '1080p Live still and 720p video of the same ratio share equal cells',
+    () {
+      const liveStill = MediaAsset(
+        uri: 'content://images/live',
+        name: 'MVIMG.jpg',
+        durationMs: 2500,
+        width: 1920,
+        height: 1080,
+        rotation: 0,
+        kind: MediaKind.motionPhoto,
+      );
+      const video = MediaAsset(
+        uri: 'content://video/clip',
+        name: 'clip.mp4',
+        durationMs: 2500,
+        width: 1280,
+        height: 720,
+        rotation: 0,
+      );
+      final controller = MotionCanvasController(
+        assets: const [liveStill, video],
+      );
+      addTearDown(controller.dispose);
+
+      final plan = controller.canvasPlan;
+      expect(plan.kind, AdaptiveLayoutKind.verticalTimeFlow);
+      expect(plan.frames, hasLength(2));
+      expect(plan.frames.first.rect.width, 1280);
+      expect(plan.frames.first.rect.height, 720);
+      expect(plan.frames.last.rect.width, 1280);
+      expect(plan.frames.last.rect.height, 720);
+      expect(plan.frames.first.rect.x, 0);
+      expect(plan.frames.last.rect.x, 0);
+      expect(plan.frames.first.retainedSourceFraction, closeTo(1, .001));
+      expect(plan.frames.last.retainedSourceFraction, closeTo(1, .001));
+      expect(controller.durationMs, 2500);
+    },
+  );
+
+  test('each clip keeps an independent cover inside its trim', () {
+    final controller = MotionCanvasController(
+      assets: const [landscape, portrait],
+    );
+    addTearDown(controller.dispose);
+
+    controller.setClipCover(0, 800);
+    controller.selectClip(1);
+    controller.setClipCover(1, 1200);
+
+    expect(controller.clips.first.resolvedCoverMs, 800);
+    expect(controller.clips.last.resolvedCoverMs, 1200);
+    expect(controller.activeClipIndex, 1);
+    expect(controller.isPlaying, isFalse);
+  });
+
+  test('decoded 720p motion replaces a 1080p Live still before layout', () {
+    const liveStill = MediaAsset(
+      uri: 'file:///cache/live.mp4',
+      name: 'MVIMG.jpg',
+      durationMs: 500,
+      width: 1920,
+      height: 1080,
+      rotation: 0,
+      kind: MediaKind.motionPhoto,
+    );
+    const video = MediaAsset(
+      uri: 'content://video/clip',
+      name: 'clip.mp4',
+      durationMs: 2500,
+      width: 1280,
+      height: 720,
+      rotation: 0,
+    );
+    final controller = MotionCanvasController(assets: const [liveStill, video]);
+    addTearDown(controller.dispose);
+
+    controller.adoptDecodedSource(
+      0,
+      width: 1280,
+      height: 720,
+      decodedDurationMs: 2490,
+    );
+
+    expect(controller.clips.first.asset.width, 1280);
+    expect(controller.clips.first.asset.height, 720);
+    expect(controller.durationMs, 2490);
+    expect(controller.durationMs, lessThanOrEqualTo(video.durationMs));
+    for (final frame in controller.frames) {
+      expect(frame.rect.width, 1280);
+      expect(frame.rect.height, 720);
+    }
   });
 
   test('manual Smart Crop focus is stored for later headroom', () {

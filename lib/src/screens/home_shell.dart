@@ -262,11 +262,6 @@ class _Discover extends StatelessWidget {
                 ),
               ],
             ),
-            const Spacer(),
-            IconButton.filledTonal(
-              onPressed: () {},
-              icon: const Icon(Icons.notifications_none_rounded),
-            ),
           ],
         ),
         const SizedBox(height: 38),

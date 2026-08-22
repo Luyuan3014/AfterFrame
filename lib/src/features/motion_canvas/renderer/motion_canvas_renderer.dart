@@ -79,8 +79,23 @@ class _MotionCanvasRendererState extends State<MotionCanvasRenderer> {
               : 0,
         );
         await player.setPlaybackSpeed(widget.controller.playbackSpeed);
-        await player.seekTo(Duration(milliseconds: clip.trimStartMs));
+        await player.seekTo(Duration(milliseconds: clip.resolvedCoverMs));
         player.addListener(_onPlayerTick);
+        final decoded = player.value.size;
+        final decodedMs = player.value.duration.inMilliseconds;
+        final clipIndex = widget.controller.clips.indexWhere(
+          (item) => item.id == clip.id,
+        );
+        if (clipIndex >= 0 && decoded.width > 2 && decoded.height > 2) {
+          widget.controller.adoptDecodedSource(
+            clipIndex,
+            width: decoded.width.round(),
+            height: decoded.height.round(),
+            decodedDurationMs: decodedMs > 0
+                ? decodedMs
+                : clip.asset.durationMs,
+          );
+        }
       } catch (_) {
         // A failed source keeps its editorial placeholder without taking down
         // the rest of the canvas.
@@ -109,7 +124,9 @@ class _MotionCanvasRendererState extends State<MotionCanvasRenderer> {
       for (final clip in widget.controller.clips) {
         final player = _players[clip.id];
         if (player == null || !player.value.isInitialized) continue;
-        final expected = clip.trimStartMs + widget.controller.positionMs;
+        final expected = widget.controller.isPlaying
+            ? clip.trimStartMs + widget.controller.positionMs
+            : clip.resolvedCoverMs;
         if ((player.value.position.inMilliseconds - expected).abs() > 110) {
           await player.seekTo(Duration(milliseconds: expected));
         }
@@ -302,7 +319,9 @@ class _MotionCanvasRendererState extends State<MotionCanvasRenderer> {
             (a.x + a.width < b.x + b.width ? a.x + a.width : b.x + b.width) -
             (a.x > b.x ? a.x : b.x);
         final overlapY =
-            (a.y + a.height < b.y + b.height ? a.y + a.height : b.y + b.height) -
+            (a.y + a.height < b.y + b.height
+                ? a.y + a.height
+                : b.y + b.height) -
             (a.y > b.y ? a.y : b.y);
         if (overlapX > 0) {
           final gapTop = a.y + a.height < b.y + b.height
@@ -311,14 +330,7 @@ class _MotionCanvasRendererState extends State<MotionCanvasRenderer> {
           final gapBottom = a.y > b.y ? a.y : b.y;
           final gap = gapBottom - gapTop;
           if (gap >= 1 && gap <= 8) {
-            seams.add(
-              CanvasRect(
-                a.x > b.x ? a.x : b.x,
-                gapTop,
-                overlapX,
-                gap,
-              ),
-            );
+            seams.add(CanvasRect(a.x > b.x ? a.x : b.x, gapTop, overlapX, gap));
           }
         }
         if (overlapY > 0) {
@@ -329,12 +341,7 @@ class _MotionCanvasRendererState extends State<MotionCanvasRenderer> {
           final gap = gapRight - gapLeft;
           if (gap >= 1 && gap <= 8) {
             seams.add(
-              CanvasRect(
-                gapLeft,
-                a.y > b.y ? a.y : b.y,
-                gap,
-                overlapY,
-              ),
+              CanvasRect(gapLeft, a.y > b.y ? a.y : b.y, gap, overlapY),
             );
           }
         }
@@ -396,9 +403,21 @@ class _ClipSurface extends StatelessWidget {
       child: ready
           ? LayoutBuilder(
               builder: (context, constraints) {
-                final scale = constraints.maxWidth / frame.rect.width;
-                final cropLeft = frame.crop.left * sourceWidth * scale;
-                final cropTop = frame.crop.top * sourceHeight * scale;
+                final cropW = frame.crop.widthPixels < 1
+                    ? 1
+                    : frame.crop.widthPixels;
+                final cropH = frame.crop.heightPixels < 1
+                    ? 1
+                    : frame.crop.heightPixels;
+                final scaleX = constraints.maxWidth / cropW;
+                final scaleY = constraints.maxHeight / cropH;
+                final scale = scaleX < scaleY ? scaleX : scaleY;
+                final originX =
+                    (constraints.maxWidth - cropW * scale) / 2 -
+                    frame.crop.leftPixels * scale;
+                final originY =
+                    (constraints.maxHeight - cropH * scale) / 2 -
+                    frame.crop.topPixels * scale;
                 return GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: onTap,
@@ -410,8 +429,8 @@ class _ClipSurface extends StatelessWidget {
                       clipBehavior: Clip.hardEdge,
                       children: [
                         Positioned(
-                          left: -cropLeft,
-                          top: -cropTop,
+                          left: originX,
+                          top: originY,
                           width: sourceWidth * scale,
                           height: sourceHeight * scale,
                           child: VideoPlayer(player!),

@@ -4,8 +4,8 @@ import '../../../models/live_rules.dart';
 
 enum MotionExportFormat { motionPhoto, mp4 }
 
-/// The editorial families considered by Adaptive Canvas. The selected family
-/// changes canvas frames only; source pixels are never resized per frame.
+/// The editorial families considered by Adaptive Canvas. Same-aspect tiles
+/// share one cell size; mixed-aspect tiles keep native pixels.
 enum AdaptiveLayoutKind {
   single,
   verticalTimeFlow,
@@ -67,7 +67,8 @@ class CanvasRect {
 }
 
 /// A source-space crop window. Coordinates are normalized to the oriented
-/// source. The crop's pixel dimensions always equal its destination frame.
+/// source. Same-aspect tiles may keep a larger crop than the destination
+/// frame; export then uniformly scales that window into the cell.
 class SmartCropWindow {
   const SmartCropWindow({
     required this.leftPixels,
@@ -211,11 +212,11 @@ class MotionCanvasLayout {
         ],
       );
 
-  /// Stack full sources. Shared axis uses the max so every clip keeps its
-  /// native pixels; narrower/shorter clips are centered (tiny gutters beat crop).
-  ///
-  /// Consecutive frames overlap by [seamOverlapPixels] so Media3's compositor
-  /// never leaves a clear-color hairline that H.264 makes shimmer.
+  /// Stack full sources. Same-aspect clips share one cell size (the smallest
+  /// native frame) so a 1080p Live still and a 720p video of the same shot
+  /// sit as equal panels instead of a hero tile plus pillarboxed leftover.
+  /// Different aspect ratios keep native pixels and are centered on the
+  /// shared axis — tiny gutters beat stretching.
   AdaptiveCanvasPlan _materializeStack(
     List<CanvasSourceGeometry> sources, {
     required bool vertical,
@@ -225,6 +226,36 @@ class MotionCanvasLayout {
     final frames = <CanvasFrame>[];
 
     if (vertical) {
+      if (_sameAspectFamily(sources)) {
+        final cellWidth = _even(
+          sources.map((source) => source.width).reduce(math.min),
+        );
+        final cellHeight = _even(
+          sources
+              .map(
+                (source) => (cellWidth * source.height / source.width).round(),
+              )
+              .reduce(math.min),
+        );
+        var y = 0;
+        for (var index = 0; index < n; index++) {
+          frames.add(
+            _frameForFitted(
+              source: sources[index],
+              left: 0,
+              top: y,
+              width: cellWidth,
+              height: cellHeight,
+            ),
+          );
+          y += cellHeight + (index == n - 1 ? 0 : stepGap);
+        }
+        return AdaptiveCanvasPlan(
+          kind: AdaptiveLayoutKind.verticalTimeFlow,
+          canvas: CanvasPixelSize(cellWidth, y),
+          frames: frames,
+        );
+      }
       final canvasWidth = _even(
         sources.map((source) => source.width).reduce(math.max),
       );
@@ -257,6 +288,37 @@ class MotionCanvasLayout {
       return AdaptiveCanvasPlan(
         kind: AdaptiveLayoutKind.verticalTimeFlow,
         canvas: CanvasPixelSize(canvasWidth, y),
+        frames: frames,
+      );
+    }
+
+    if (_sameAspectFamily(sources)) {
+      final cellHeight = _even(
+        sources.map((source) => source.height).reduce(math.min),
+      );
+      final cellWidth = _even(
+        sources
+            .map(
+              (source) => (cellHeight * source.width / source.height).round(),
+            )
+            .reduce(math.min),
+      );
+      var x = 0;
+      for (var index = 0; index < n; index++) {
+        frames.add(
+          _frameForFitted(
+            source: sources[index],
+            left: x,
+            top: 0,
+            width: cellWidth,
+            height: cellHeight,
+          ),
+        );
+        x += cellWidth + (index == n - 1 ? 0 : stepGap);
+      }
+      return AdaptiveCanvasPlan(
+        kind: AdaptiveLayoutKind.horizontalTimeFlow,
+        canvas: CanvasPixelSize(x, cellHeight),
         frames: frames,
       );
     }
@@ -313,10 +375,7 @@ class MotionCanvasLayout {
 
     return AdaptiveCanvasPlan(
       kind: AdaptiveLayoutKind.grid,
-      canvas: CanvasPixelSize(
-        _even(canvasWidth),
-        bottomTop + c.height,
-      ),
+      canvas: CanvasPixelSize(_even(canvasWidth), bottomTop + c.height),
       frames: [
         _frameFor(
           source: a,
@@ -353,7 +412,8 @@ class MotionCanvasLayout {
 
     final scale = maxExportSide / longest;
     final stepGap = gapPixels - seamOverlapPixels;
-    final scaled = <({CanvasSourceGeometry source, int width, int height, int left})>[];
+    final scaled =
+        <({CanvasSourceGeometry source, int width, int height, int left})>[];
     for (final frame in plan.frames) {
       final source = CanvasSourceGeometry(
         width: frame.crop.sourceWidth,
@@ -366,10 +426,7 @@ class MotionCanvasLayout {
             frame.crop.sourceHeight,
       );
       final width = _even(
-        math.max(
-          2,
-          math.min(source.width, (frame.rect.width * scale).floor()),
-        ),
+        math.max(2, math.min(source.width, (frame.rect.width * scale).floor())),
       );
       final height = _even(
         math.max(
@@ -413,9 +470,7 @@ class MotionCanvasLayout {
     final canvasWidth = _even(
       math.max(
         2,
-        scaled
-            .map((item) => item.left + item.width)
-            .reduce(math.max),
+        scaled.map((item) => item.left + item.width).reduce(math.max),
       ),
     );
     var y = 0;
@@ -478,6 +533,63 @@ class MotionCanvasLayout {
       retainedSourceFraction:
           (frameWidth * frameHeight) / (source.width * source.height),
     );
+  }
+
+  /// Places the largest same-aspect window of [source] into a cell that may
+  /// be smaller than the source. Matching 16:9 clips therefore keep full
+  /// framing and are uniformly scaled to the shared cell at export time.
+  CanvasFrame _frameForFitted({
+    required CanvasSourceGeometry source,
+    required int left,
+    required int top,
+    required int width,
+    required int height,
+  }) {
+    final frameWidth = _even(math.max(2, width));
+    final frameHeight = _even(math.max(2, height));
+    final frameAr = frameWidth / frameHeight;
+    final sourceAr = source.width / source.height;
+    late final int cropW;
+    late final int cropH;
+    if (sourceAr >= frameAr) {
+      cropH = _even(math.max(2, source.height));
+      cropW = _even(((cropH * frameAr).round()).clamp(2, source.width));
+    } else {
+      cropW = _even(math.max(2, source.width));
+      cropH = _even(((cropW / frameAr).round()).clamp(2, source.height));
+    }
+    final cropLeftPixels = ((source.focusX * source.width - cropW / 2).round())
+        .clamp(0, math.max(0, source.width - cropW))
+        .toInt();
+    final cropTopPixels = ((source.focusY * source.height - cropH / 2).round())
+        .clamp(0, math.max(0, source.height - cropH))
+        .toInt();
+    return CanvasFrame(
+      rect: CanvasRect(
+        left.toDouble(),
+        top.toDouble(),
+        frameWidth.toDouble(),
+        frameHeight.toDouble(),
+      ),
+      crop: SmartCropWindow(
+        leftPixels: cropLeftPixels,
+        topPixels: cropTopPixels,
+        widthPixels: cropW,
+        heightPixels: cropH,
+        sourceWidth: source.width,
+        sourceHeight: source.height,
+      ),
+      retainedSourceFraction: (cropW * cropH) / (source.width * source.height),
+    );
+  }
+
+  bool _sameAspectFamily(List<CanvasSourceGeometry> sources) {
+    if (sources.length < 2) return true;
+    final ratios = sources.map((source) => source.aspectRatio);
+    final minRatio = ratios.reduce(math.min);
+    final maxRatio = ratios.reduce(math.max);
+    if (minRatio <= 0) return false;
+    return maxRatio / minRatio <= 1.12;
   }
 
   double _score(AdaptiveCanvasPlan plan) {

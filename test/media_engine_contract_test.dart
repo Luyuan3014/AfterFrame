@@ -81,6 +81,7 @@ void main() {
         [1080, 1920],
         [1080, 1920],
       ],
+      collageCoverMs: const [1800, 900],
       canvasWidth: 864,
       canvasHeight: 1536,
       format: 'mp4',
@@ -119,7 +120,50 @@ void main() {
       [1080, 1920],
       [1080, 1920],
     ]);
+    expect(arguments['collageCoverMs'], [1800, 900]);
   });
+
+  test(
+    'resolvePlayable extracts Live photos and leaves videos untouched',
+    () async {
+      MethodCall? captured;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            captured = call;
+            return {
+              'uri': 'file:///cache/live.mp4',
+              'name': 'MVIMG.jpg',
+              'durationMs': 2800,
+              'width': 1080,
+              'height': 1920,
+              'rotation': 0,
+              'kind': 'motionPhoto',
+              'libraryUri': 'content://images/7',
+              'stillUri': 'content://images/7',
+            };
+          });
+
+      final video = await const MediaEngine().resolvePlayable(asset);
+      expect(video, same(asset));
+      expect(captured, isNull);
+
+      const live = MediaAsset(
+        uri: 'content://images/7',
+        name: 'MVIMG.jpg',
+        durationMs: 0,
+        width: 1080,
+        height: 1920,
+        rotation: 0,
+        kind: MediaKind.motionPhoto,
+        libraryUri: 'content://images/7',
+        stillUri: 'content://images/7',
+      );
+      final playable = await const MediaEngine().resolvePlayable(live);
+      expect(captured?.method, 'resolvePlayableSource');
+      expect(playable.uri, 'file:///cache/live.mp4');
+      expect(playable.identity, live.identity);
+    },
+  );
 
   test('deleteExport forwards the durable work identity', () async {
     MethodCall? captured;

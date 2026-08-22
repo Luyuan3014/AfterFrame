@@ -42,13 +42,14 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tool\publish_gitee_upd
 
 普通侧载应用无法绕过 Android 的安装安全确认。首次安装更新时，系统可能要求允许 AfterFrame 安装未知来源应用；授权后返回 App 会自动继续打开系统安装页。App 不会申请 root、设备所有者权限或尝试静默替换自身。
 
-AfterFrame 是 Android 优先的 Flutter 动态记忆编辑器：从相册视频选择片段，挑选封面，裁切为短视频，生成标准 Android Motion Photo，并提供适合微信、抖音等聊天场景分享的 MP4。它也支持最多三段视频的同步 Live 拼图。
+AfterFrame 是 Android 优先的 Flutter 动态记忆编辑器：从相册视频或 Live 图选择片段，挑选封面，裁切为短视频，生成标准 Android Motion Photo，并提供适合微信、抖音等聊天场景分享的 MP4。它也支持最多三段视频/Live 图的同步 Live 拼图。
 
 ## 当前能力
 
-- MediaStore 应用内视频选择、顺序多选，并在进入 Studio 前预告作品形态
-- 一套创作规则：1 段素材生成保留原始画幅的 Live 单帧，2～3 段素材生成 Adaptive Canvas 自动版式的 Live 拼图，无需选择模式
-- 原生视频信息读取、缩略图和精确封面抽帧
+- MediaStore 应用内素材选择：普通视频与 Android Live 图（动态照片）混选、顺序多选，并在进入 Studio 前预告作品形态
+- 一套创作规则：1 段素材生成保留原始画幅的 Live 单帧，2～3 段素材生成 Adaptive Canvas 自动版式的 Live 拼图，无需选择模式；同比例格子等大，每段可独立选封面，时长不超过最短素材
+- Studio 内可继续添加素材（最多 3 段），也可移除并撤销；删到 1 段自动回到单帧
+- 原生视频信息读取、Live 图动态抽取、缩略图和精确封面抽帧
 - 0.5x–2.0x 变速、裁切、静音/保留主素材音频和轻量色彩增强
 - Media3 多视频 Composition，支持横向、纵向和主次网格布局及焦点裁切
 - Media3 Transformer 输出 H.264/AAC MP4
@@ -64,7 +65,8 @@ Flutter UI / editor state
           │ MethodChannel com.afterframe/media_engine
           ▼
 MainActivity
-  ├─ MediaStore / MediaMetadataRetriever（选择、解析、抽帧）
+  ├─ MediaStore / MediaMetadataRetriever（视频 + Live 图选择、解析、抽帧）
+  ├─ MotionPhotoSource（Motion Photo / MicroVideo / HEIC 动态抽取）
   ├─ Media3RenderEngine（裁切、变速、效果、多路合成、MP4）
   └─ ExportService（Motion Photo 封装、发布、分享、作品索引）
 ```

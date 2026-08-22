@@ -87,8 +87,39 @@ void main() {
       ),
     );
 
-    expect(find.byTooltip('Remove this clip'), findsNWidgets(2));
+        expect(find.byTooltip('Remove this clip'), findsNWidgets(2));
     await tester.tap(find.byTooltip('Remove this clip').last);
     expect(removed, 1);
+  });
+
+  testWidgets('a canvas with room can add another source', (tester) async {
+    final controller = MotionCanvasController(assets: assets);
+    addTearDown(controller.dispose);
+    var added = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AppLanguageScope(
+          controller: AppLanguageController(AppLanguage.english),
+          child: Scaffold(
+            body: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: StudioCanvasTools(
+                  controller: controller,
+                  onEditClip: (_) {},
+                  onRemoveClip: (_) {},
+                  onAddClip: () => added = true,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.ensureVisible(find.byTooltip('Add clip'));
+    await tester.tap(find.byTooltip('Add clip'));
+    expect(added, isTrue);
   });
 }

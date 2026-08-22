@@ -32,19 +32,23 @@ class AndroidMediaPolicyInstrumentedTest {
     }
 
     @Test
-    fun api33UsesReadMediaVideo() {
+    fun api33UsesReadMediaVideoAndImages() {
         assertArrayEquals(
-            arrayOf(Manifest.permission.READ_MEDIA_VIDEO),
+            arrayOf(
+                Manifest.permission.READ_MEDIA_VIDEO,
+                Manifest.permission.READ_MEDIA_IMAGES,
+            ),
             AndroidMediaPolicy.videoPermissions(33),
         )
         assertTrue(AndroidMediaPolicy.usesScopedMediaStore(33))
     }
 
     @Test
-    fun api34SupportsFullAndUserSelectedVideoAccess() {
+    fun api34SupportsFullAndUserSelectedVisualAccess() {
         assertArrayEquals(
             arrayOf(
                 Manifest.permission.READ_MEDIA_VIDEO,
+                Manifest.permission.READ_MEDIA_IMAGES,
                 Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
             ),
             AndroidMediaPolicy.videoPermissions(34),

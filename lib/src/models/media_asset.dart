@@ -1,3 +1,5 @@
+enum MediaKind { video, motionPhoto }
+
 class MediaAsset {
   const MediaAsset({
     required this.uri,
@@ -6,14 +8,42 @@ class MediaAsset {
     required this.width,
     required this.height,
     required this.rotation,
+    this.kind = MediaKind.video,
+    this.libraryUri = '',
+    this.stillUri,
   });
 
+  /// Playable source. Videos keep their MediaStore URI; Live photos become the
+  /// extracted MP4 after [MediaEngine.resolvePlayable].
   final String uri;
   final String name;
   final int durationMs;
   final int width;
   final int height;
   final int rotation;
+  final MediaKind kind;
+
+  /// Stable picker identity. For Live photos this stays the original still URI
+  /// even after the motion payload has been extracted.
+  final String libraryUri;
+
+  /// Original Motion Photo still, used for album thumbnails.
+  final String? stillUri;
+
+  bool get isMotionPhoto => kind == MediaKind.motionPhoto;
+
+  String get durationLabel {
+    if (isMotionPhoto && durationMs <= 0) return 'LIVE';
+    final total = (durationMs / 1000).floor();
+    return '${(total ~/ 60).toString().padLeft(2, '0')}:'
+        '${(total % 60).toString().padLeft(2, '0')}';
+  }
+
+  String get identity => libraryUri.isNotEmpty
+      ? libraryUri
+      : (stillUri?.isNotEmpty == true ? stillUri! : uri);
+
+  String get thumbnailUri => stillUri?.isNotEmpty == true ? stillUri! : uri;
 
   double get aspectRatio {
     final rotated = rotation == 90 || rotation == 270;
@@ -22,10 +52,27 @@ class MediaAsset {
     return h == 0 ? 9 / 16 : w / h;
   }
 
-  String get durationLabel {
-    final seconds = durationMs ~/ 1000;
-    return '${(seconds ~/ 60).toString().padLeft(2, '0')}:${(seconds % 60).toString().padLeft(2, '0')}';
-  }
+  MediaAsset copyWith({
+    String? uri,
+    String? name,
+    int? durationMs,
+    int? width,
+    int? height,
+    int? rotation,
+    MediaKind? kind,
+    String? libraryUri,
+    String? stillUri,
+  }) => MediaAsset(
+    uri: uri ?? this.uri,
+    name: name ?? this.name,
+    durationMs: durationMs ?? this.durationMs,
+    width: width ?? this.width,
+    height: height ?? this.height,
+    rotation: rotation ?? this.rotation,
+    kind: kind ?? this.kind,
+    libraryUri: libraryUri ?? this.libraryUri,
+    stillUri: stillUri ?? this.stillUri,
+  );
 
   factory MediaAsset.fromMap(Map<Object?, Object?> map) => MediaAsset(
     uri: map['uri'] as String,
@@ -34,6 +81,11 @@ class MediaAsset {
     width: (map['width'] as num?)?.toInt() ?? 0,
     height: (map['height'] as num?)?.toInt() ?? 0,
     rotation: (map['rotation'] as num?)?.toInt() ?? 0,
+    kind: (map['kind'] as String?) == 'motionPhoto'
+        ? MediaKind.motionPhoto
+        : MediaKind.video,
+    libraryUri: (map['libraryUri'] as String?) ?? '',
+    stillUri: map['stillUri'] as String?,
   );
 }
 

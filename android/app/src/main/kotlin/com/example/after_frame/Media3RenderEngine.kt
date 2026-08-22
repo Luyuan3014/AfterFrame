@@ -298,6 +298,14 @@ class Media3RenderEngine(
             val top = 1f - crop.top * 2f
             val bottom = 1f - (crop.top + crop.height) * 2f
             effects += Crop(left, right, bottom, top)
+            // Same-aspect Live/video pairs share a cell smaller than the
+            // higher-res source. Crop keeps full framing; Presentation makes
+            // the texture exactly the Frame size for the 1:1 compositor.
+            effects += Presentation.createForWidthAndHeight(
+                slot.width,
+                slot.height,
+                Presentation.LAYOUT_SCALE_TO_FIT,
+            )
         } else {
             effects += Presentation.createForShortSide(1080)
         }
@@ -462,9 +470,14 @@ class Media3RenderEngine(
                         ?: return@mapIndexedNotNull null
                     val slot = customSlots.getOrNull(index) ?: return@mapIndexedNotNull null
                     if (
-                        left < 0 || top < 0 || width != slot.width || height != slot.height ||
+                        left < 0 || top < 0 || width <= 0 || height <= 0 ||
                         left + width > sourceWidth || top + height > sourceHeight
                     ) return@mapIndexedNotNull null
+                    val slotAspect = slot.width.toDouble() / slot.height
+                    val cropAspect = width.toDouble() / height
+                    if (kotlin.math.abs(slotAspect - cropAspect) / slotAspect > 0.04) {
+                        return@mapIndexedNotNull null
+                    }
                     CropWindow(
                         left = left.toFloat() / sourceWidth,
                         top = top.toFloat() / sourceHeight,

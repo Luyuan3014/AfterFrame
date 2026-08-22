@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/animation.dart';
 import 'package:flutter/foundation.dart';
 
@@ -18,6 +20,7 @@ class MotionCanvasController extends ChangeNotifier {
           asset: asset,
           trimStartMs: 0,
           trimEndMs: end,
+          coverMs: end ~/ 2,
           focus: smartCropFocusFor(asset),
           subject: asset.aspectRatio < .82
               ? SubjectKind.person
@@ -55,10 +58,20 @@ class MotionCanvasController extends ChangeNotifier {
   /// leave Studio without anything to edit.
   bool get canRemoveClip => clips.length > 1;
 
-  int get durationMs => clips
-      .map((clip) => clip.durationMs)
-      .reduce((a, b) => a < b ? a : b)
-      .clamp(minLiveDurationMs, maxLiveDurationMs);
+  bool get canAddClip => clips.length < maxLiveSources;
+
+  /// Shared Live length is never longer than the shortest usable source.
+  int get durationMs {
+    final shortest = clips
+        .map((clip) {
+          final assetMs = clip.asset.durationMs <= 0
+              ? clip.durationMs
+              : clip.asset.durationMs;
+          return math.min(clip.durationMs, assetMs);
+        })
+        .reduce(math.min);
+    return shortest.clamp(minLiveDurationMs, maxLiveDurationMs);
+  }
 
   MotionClip get activeClip => clips[activeClipIndex];
 
@@ -116,13 +129,132 @@ class MotionCanvasController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Rebuilds the ordered clip list from a new library selection.
+  ///
+  /// Clips whose [MediaAsset.identity] still exist keep trim, focus and
+  /// thumbnail so adding a third Live photo does not wipe earlier edits.
+  void replaceSources(List<MediaAsset> assets) {
+    if (assets.isEmpty) return;
+    final next = assets.take(maxLiveSources).toList(growable: false);
+    final existing = {for (final clip in clips) clip.asset.identity: clip};
+    clips = [
+      for (var index = 0; index < next.length; index++)
+        _clipForReplacement(next[index], index, existing[next[index].identity]),
+    ];
+    activeClipIndex = activeClipIndex.clamp(0, clips.length - 1);
+    isPlaying = false;
+    positionMs = positionMs.clamp(0, durationMs);
+    notifyListeners();
+  }
+
+  MotionClip _clipForReplacement(
+    MediaAsset asset,
+    int index,
+    MotionClip? previous,
+  ) {
+    if (previous == null) {
+      final end = asset.durationMs
+          .clamp(minLiveDurationMs, maxLiveDurationMs)
+          .toInt();
+      return MotionClip(
+        id: '${asset.identity}#$index',
+        asset: asset,
+        trimStartMs: 0,
+        trimEndMs: end,
+        coverMs: end ~/ 2,
+        focus: smartCropFocusFor(asset),
+        subject: asset.aspectRatio < .82
+            ? SubjectKind.person
+            : SubjectKind.landscape,
+      );
+    }
+    final end = previous.trimEndMs
+        .clamp(previous.trimStartMs + minLiveDurationMs, asset.durationMs)
+        .toInt();
+    final start = previous.trimStartMs
+        .clamp(0, end - minLiveDurationMs)
+        .toInt();
+    return previous.copyWith(
+      asset: asset,
+      trimStartMs: start,
+      trimEndMs: end,
+      coverMs: previous.resolvedCoverMs.clamp(start, end).toInt(),
+    );
+  }
+
   void setTrim(int index, int startMs, int endMs) {
     final assetDuration = clips[index].asset.durationMs;
-    final safeStart = startMs.clamp(0, assetDuration - minLiveDurationMs);
-    final safeEnd = endMs.clamp(safeStart + minLiveDurationMs, assetDuration);
+    final safeStart = startMs
+        .clamp(0, assetDuration - minLiveDurationMs)
+        .toInt();
+    final safeEnd = endMs
+        .clamp(safeStart + minLiveDurationMs, assetDuration)
+        .toInt();
     clips[index] = clips[index].copyWith(
       trimStartMs: safeStart,
       trimEndMs: safeEnd,
+      coverMs: clips[index].resolvedCoverMs.clamp(safeStart, safeEnd).toInt(),
+    );
+    positionMs = positionMs.clamp(0, durationMs).toInt();
+    notifyListeners();
+  }
+
+  void setClipCover(int index, int timeMs) {
+    if (index < 0 || index >= clips.length) return;
+    final clip = clips[index];
+    final cover = timeMs.clamp(clip.trimStartMs, clip.trimEndMs).toInt();
+    if (clip.resolvedCoverMs == cover && !isPlaying) return;
+    isPlaying = false;
+    clips[index] = clip.copyWith(coverMs: cover);
+    notifyListeners();
+  }
+
+  /// Ground-truth size and duration from the decoded preview player.
+  ///
+  /// Live stills are often 1080p while the motion is 720p. Layout must follow
+  /// the playable video, not the JPEG.
+  void adoptDecodedSource(
+    int index, {
+    required int width,
+    required int height,
+    required int decodedDurationMs,
+  }) {
+    if (index < 0 || index >= clips.length) return;
+    final clip = clips[index];
+    final safeDuration = decodedDurationMs
+        .clamp(minLiveDurationMs, 1 << 30)
+        .toInt();
+    final widthChanged =
+        width >= 2 &&
+        height >= 2 &&
+        (clip.asset.width != width || clip.asset.height != height);
+    final durationChanged = clip.asset.durationMs != safeDuration;
+    if (!widthChanged && !durationChanged) return;
+
+    var start = clip.trimStartMs
+        .clamp(0, math.max(0, safeDuration - minLiveDurationMs))
+        .toInt();
+    var end = clip.trimEndMs
+        .clamp(start + minLiveDurationMs, safeDuration)
+        .toInt();
+    if (clip.trimStartMs == 0 &&
+        clip.trimEndMs <= minLiveDurationMs &&
+        safeDuration > minLiveDurationMs) {
+      start = 0;
+      end = math.min(safeDuration, maxLiveDurationMs);
+    }
+    clips[index] = clip.copyWith(
+      asset: clip.asset.copyWith(
+        width: widthChanged ? width : null,
+        height: widthChanged ? height : null,
+        durationMs: durationChanged ? safeDuration : null,
+        rotation: 0,
+      ),
+      trimStartMs: start,
+      trimEndMs: end,
+      coverMs: (clip.coverMs ?? (start + (end - start) ~/ 2))
+          .clamp(start, end)
+          .toInt(),
     );
     positionMs = positionMs.clamp(0, durationMs);
     notifyListeners();

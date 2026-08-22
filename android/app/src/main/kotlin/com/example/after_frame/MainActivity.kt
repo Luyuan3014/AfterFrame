@@ -43,8 +43,11 @@ class MainActivity : FlutterActivity() {
     private fun handle(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "requestVideoAccess" -> requestVideoAccess(result)
-            "listVideos" -> background(result) { listVideos() }
+            "listVideos" -> background(result) { listLibrary() }
             "inspectVideo" -> background(result) { inspect(Uri.parse(call.argument<String>("uri")!!)) }
+            "resolvePlayableSource" -> background(result) {
+                resolvePlayable(Uri.parse(call.argument<String>("uri")!!))
+            }
             "videoThumbnail" -> background(result) {
                 thumbnail(Uri.parse(call.argument<String>("uri")!!))
             }
@@ -133,11 +136,11 @@ class MainActivity : FlutterActivity() {
             return
         }
         if (pendingPermission != null) {
-            result.error("PERMISSION_IN_PROGRESS", "正在请求视频访问权限", null)
+            result.error("PERMISSION_IN_PROGRESS", "正在请求媒体访问权限", null)
             return
         }
         pendingPermission = result
-        ActivityCompat.requestPermissions(this, videoPermissions(), permissionRequest)
+        ActivityCompat.requestPermissions(this, libraryPermissions(), permissionRequest)
     }
 
     override fun onRequestPermissionsResult(
@@ -151,8 +154,8 @@ class MainActivity : FlutterActivity() {
         pendingPermission = null
     }
 
-    private fun videoPermissions(): Array<String> =
-        AndroidMediaPolicy.videoPermissions(Build.VERSION.SDK_INT)
+    private fun libraryPermissions(): Array<String> =
+        AndroidMediaPolicy.libraryPermissions(Build.VERSION.SDK_INT)
 
     private fun hasVideoAccess(): Boolean {
         if (Build.VERSION.SDK_INT >= 34 && ContextCompat.checkSelfPermission(
@@ -160,13 +163,20 @@ class MainActivity : FlutterActivity() {
                 Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
             ) == PackageManager.PERMISSION_GRANTED
         ) return true
-        return videoPermissions().any {
+        return libraryPermissions().any {
             ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
         }
     }
 
+    private fun listLibrary(): List<Map<String, Any>> {
+        if (!hasVideoAccess()) throw SecurityException("需要媒体访问权限才能显示素材库")
+        val items = mutableListOf<Map<String, Any>>()
+        items += listVideos()
+        items += listMotionPhotos()
+        return items.sortedByDescending { (it["dateAdded"] as? Number)?.toLong() ?: 0L }
+    }
+
     private fun listVideos(): List<Map<String, Any>> {
-        if (!hasVideoAccess()) throw SecurityException("需要视频访问权限才能显示媒体库")
         val collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
         val projection = arrayOf(
             MediaStore.Video.Media._ID,
@@ -194,34 +204,177 @@ class MainActivity : FlutterActivity() {
             val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_ADDED)
             while (cursor.moveToNext()) {
                 val uri = Uri.withAppendedPath(collection, cursor.getLong(idColumn).toString())
-                videos += mapOf(
-                    "uri" to uri.toString(),
-                    "name" to cursor.getString(nameColumn),
-                    "durationMs" to cursor.getLong(durationColumn),
-                    "width" to cursor.getInt(widthColumn),
-                    "height" to cursor.getInt(heightColumn),
-                    "rotation" to 0,
-                    "sizeBytes" to cursor.getLong(sizeColumn),
-                    "dateAdded" to cursor.getLong(dateColumn),
+                videos += libraryItem(
+                    uri = uri,
+                    name = cursor.getString(nameColumn) ?: "memory.mp4",
+                    durationMs = cursor.getLong(durationColumn),
+                    width = cursor.getInt(widthColumn),
+                    height = cursor.getInt(heightColumn),
+                    rotation = 0,
+                    sizeBytes = cursor.getLong(sizeColumn),
+                    dateAdded = cursor.getLong(dateColumn),
+                    kind = "video",
                 )
             }
         }
         return videos
     }
 
+    private fun listMotionPhotos(): List<Map<String, Any>> {
+        return runCatching { queryMotionPhotos(includeMotionColumn = Build.VERSION.SDK_INT >= 34) }
+            .getOrElse { queryMotionPhotos(includeMotionColumn = false) }
+    }
+
+    private fun queryMotionPhotos(includeMotionColumn: Boolean): List<Map<String, Any>> {
+        val collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        val projection = mutableListOf(
+            MediaStore.Images.Media._ID,
+            MediaStore.Images.Media.DISPLAY_NAME,
+            MediaStore.Images.Media.WIDTH,
+            MediaStore.Images.Media.HEIGHT,
+            MediaStore.Images.Media.SIZE,
+            MediaStore.Images.Media.DATE_ADDED,
+            MediaStore.Images.Media.MIME_TYPE,
+            MediaStore.Images.Media.ORIENTATION,
+        )
+        if (includeMotionColumn) {
+            projection += IS_MOTION_PHOTO_COLUMN
+        }
+        val photos = mutableListOf<Map<String, Any>>()
+        var peeks = 0
+        contentResolver.query(
+            collection,
+            projection.toTypedArray(),
+            null,
+            null,
+            "${MediaStore.Images.Media.DATE_ADDED} DESC",
+        )?.use { cursor ->
+            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+            val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
+            val widthColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.WIDTH)
+            val heightColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.HEIGHT)
+            val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
+            val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
+            val mimeColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
+            val orientationColumn = cursor.getColumnIndex(MediaStore.Images.Media.ORIENTATION)
+            val motionColumn = if (includeMotionColumn) {
+                cursor.getColumnIndex(IS_MOTION_PHOTO_COLUMN)
+            } else {
+                -1
+            }
+            while (cursor.moveToNext()) {
+                val name = cursor.getString(nameColumn) ?: continue
+                val mime = cursor.getString(mimeColumn) ?: "image/jpeg"
+                val flagged = motionColumn >= 0 && !cursor.isNull(motionColumn) &&
+                    cursor.getInt(motionColumn) == 1
+                val named = MotionPhotoSource.looksLikeMotionName(name)
+                val candidateMime = mime.startsWith("image/")
+                if (!candidateMime) continue
+                val uri = Uri.withAppendedPath(collection, cursor.getLong(idColumn).toString())
+                val confirmed = when {
+                    flagged || named -> true
+                    peeks >= MAX_MOTION_PEEKS -> false
+                    else -> {
+                        peeks += 1
+                        peekMotionPhoto(uri)
+                    }
+                }
+                if (!confirmed) continue
+                photos += libraryItem(
+                    uri = uri,
+                    name = name,
+                    durationMs = 0,
+                    width = cursor.getInt(widthColumn),
+                    height = cursor.getInt(heightColumn),
+                    rotation = if (orientationColumn >= 0) cursor.getInt(orientationColumn) else 0,
+                    sizeBytes = cursor.getLong(sizeColumn),
+                    dateAdded = cursor.getLong(dateColumn),
+                    kind = "motionPhoto",
+                    stillUri = uri.toString(),
+                    libraryUri = uri.toString(),
+                )
+            }
+        }
+        return photos
+    }
+
+    private fun peekMotionPhoto(uri: Uri): Boolean {
+        return runCatching {
+            contentResolver.openInputStream(uri)?.use { input ->
+                val header = ByteArray(65_536)
+                val read = input.read(header)
+                if (read <= 0) return false
+                MotionPhotoSource.headerSuggestsMotion(header.copyOf(read))
+            } ?: false
+        }.getOrDefault(false)
+    }
+
+    private fun libraryItem(
+        uri: Uri,
+        name: String,
+        durationMs: Long,
+        width: Int,
+        height: Int,
+        rotation: Int,
+        sizeBytes: Long,
+        dateAdded: Long,
+        kind: String,
+        stillUri: String? = null,
+        libraryUri: String = uri.toString(),
+    ): Map<String, Any> {
+        val values = mutableMapOf<String, Any>(
+            "uri" to uri.toString(),
+            "name" to name,
+            "durationMs" to durationMs,
+            "width" to width,
+            "height" to height,
+            "rotation" to rotation,
+            "sizeBytes" to sizeBytes,
+            "dateAdded" to dateAdded,
+            "kind" to kind,
+            "libraryUri" to libraryUri,
+        )
+        if (stillUri != null) values["stillUri"] = stillUri
+        return values
+    }
+
+    private fun resolvePlayable(uri: Uri): Map<String, Any> {
+        if (isImageUri(uri)) {
+            val extracted = MotionPhotoSource.extract(this, uri, cacheDir)
+            val playable = Uri.fromFile(extracted)
+            val meta = inspectMedia(playable)
+            val name = displayName(uri) ?: meta["name"] as String
+            return meta + mapOf(
+                "uri" to playable.toString(),
+                "name" to name,
+                "kind" to "motionPhoto",
+                "libraryUri" to uri.toString(),
+                "stillUri" to uri.toString(),
+            )
+        }
+        return inspectMedia(uri) + mapOf(
+            "kind" to "video",
+            "libraryUri" to uri.toString(),
+        )
+    }
+
     private fun inspect(uri: Uri): Map<String, Any> {
-        val name = runCatching {
-            contentResolver.query(
-                    uri,
-                    arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
-                    null,
-                    null,
-                    null,
-                )?.use { if (it.moveToFirst()) it.getString(0) else null }
-        }.getOrNull() ?: uri.lastPathSegment ?: "memory.mp4"
+        if (isImageUri(uri)) return resolvePlayable(uri)
+        return inspectMedia(uri) + mapOf(
+            "kind" to if (uri.scheme == "file") "motionPhoto" else "video",
+            "libraryUri" to uri.toString(),
+        )
+    }
+
+    private fun inspectMedia(uri: Uri): Map<String, Any> {
+        val name = displayName(uri) ?: uri.lastPathSegment ?: "memory.mp4"
         val retriever = MediaMetadataRetriever()
         return try {
-            retriever.setDataSource(this, uri)
+            if (uri.scheme == "file") {
+                retriever.setDataSource(uri.path)
+            } else {
+                retriever.setDataSource(this, uri)
+            }
             val rotation = metadataLong(
                 retriever,
                 MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION,
@@ -234,9 +387,8 @@ class MainActivity : FlutterActivity() {
                 retriever,
                 MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT,
             ).toInt()
-            if (rotation == 90 || rotation == 270) {
-                width = height.also { height = width }
-            }
+            // Keep encoded width/height. Flutter orients with [rotation] once;
+            // swapping here and again in Dart would invert portrait Live clips.
             mapOf(
                 "uri" to uri.toString(),
                 "name" to name,
@@ -261,10 +413,14 @@ class MainActivity : FlutterActivity() {
         pruneCache(directory, 160)
         val file = File(directory, "${uri.hashCode()}.jpg")
         if (file.exists() && file.length() > 0L) return file.absolutePath
-        if (Build.VERSION.SDK_INT >= 29) {
+        if (isImageUri(uri) && Build.VERSION.SDK_INT >= 29) {
             return saveBitmap(contentResolver.loadThumbnail(uri, Size(512, 512), null), file, 86)
         }
-        return extractFrameNative(uri, 0, file, closest = false)
+        if (Build.VERSION.SDK_INT >= 29 && uri.scheme != "file") {
+            return saveBitmap(contentResolver.loadThumbnail(uri, Size(512, 512), null), file, 86)
+        }
+        val playable = playableUri(uri)
+        return extractFrameNative(playable, 0, file, closest = false)
     }
 
     private fun extractFrame(uri: Uri, timeMs: Long): String {
@@ -272,13 +428,42 @@ class MainActivity : FlutterActivity() {
         pruneCache(directory, 128)
         val file = File(directory, "${uri.hashCode()}_$timeMs.jpg")
         if (file.exists() && file.length() > 0L) return file.absolutePath
-        return extractFrameNative(uri, timeMs, file, closest = true)
+        return extractFrameNative(playableUri(uri), timeMs, file, closest = true)
     }
+
+    private fun playableUri(uri: Uri): Uri {
+        if (!isImageUri(uri)) return uri
+        return Uri.fromFile(MotionPhotoSource.extract(this, uri, cacheDir))
+    }
+
+    private fun isImageUri(uri: Uri): Boolean {
+        if (uri.scheme == "file") {
+            val path = uri.path.orEmpty().lowercase()
+            return path.endsWith(".jpg") || path.endsWith(".jpeg") ||
+                path.endsWith(".heic") || path.endsWith(".heif")
+        }
+        val mime = contentResolver.getType(uri) ?: return uri.toString().contains("/images/")
+        return mime.startsWith("image/")
+    }
+
+    private fun displayName(uri: Uri): String? = runCatching {
+        contentResolver.query(
+            uri,
+            arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
+            null,
+            null,
+            null,
+        )?.use { if (it.moveToFirst()) it.getString(0) else null }
+    }.getOrNull()
 
     private fun extractFrameNative(uri: Uri, timeMs: Long, file: File, closest: Boolean): String {
         val retriever = MediaMetadataRetriever()
         return try {
-            retriever.setDataSource(this, uri)
+            if (uri.scheme == "file") {
+                retriever.setDataSource(uri.path)
+            } else {
+                retriever.setDataSource(this, uri)
+            }
             val option = if (closest) {
                 MediaMetadataRetriever.OPTION_CLOSEST
             } else {
@@ -316,6 +501,11 @@ class MainActivity : FlutterActivity() {
     private fun pruneCache(directory: File, limit: Int) {
         val files = directory.listFiles()?.filter(File::isFile)?.sortedBy(File::lastModified) ?: return
         files.take((files.size - limit).coerceAtLeast(0)).forEach(File::delete)
+    }
+
+    private companion object {
+        const val MAX_MOTION_PEEKS = 250
+        const val IS_MOTION_PHOTO_COLUMN = "is_motion_photo"
     }
 
     private fun background(result: MethodChannel.Result, operation: () -> Any?) {
