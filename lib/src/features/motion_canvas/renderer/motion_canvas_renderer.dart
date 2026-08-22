@@ -55,6 +55,7 @@ class _MotionCanvasRendererState extends State<MotionCanvasRenderer> {
   }
 
   Future<void> _ensurePlayers() async {
+    if (widget.controller.isExporting) return;
     final expected = widget.controller.clips.map((clip) => clip.id).toSet();
     final obsolete = _players.keys
         .where((id) => !expected.contains(id))
@@ -65,6 +66,10 @@ class _MotionCanvasRendererState extends State<MotionCanvasRenderer> {
       await player?.dispose();
     }
     for (final clip in widget.controller.clips) {
+      if (widget.controller.isExporting) {
+        await _releasePlayersForExport();
+        return;
+      }
       if (_players.containsKey(clip.id)) continue;
       final player = widget.previewEngine.create(clip.asset.uri);
       _players[clip.id] = player;
@@ -107,6 +112,10 @@ class _MotionCanvasRendererState extends State<MotionCanvasRenderer> {
 
   void _onCanvasChanged() {
     if (!mounted) return;
+    if (widget.controller.isExporting) {
+      unawaited(_releasePlayersForExport());
+      return;
+    }
     final clipIds = widget.controller.clips.map((clip) => clip.id).toSet();
     if (clipIds.length != _players.length ||
         !clipIds.every(_players.containsKey)) {
@@ -115,6 +124,28 @@ class _MotionCanvasRendererState extends State<MotionCanvasRenderer> {
     }
     unawaited(_applyPlaybackIntent());
     setState(() {});
+  }
+
+  Future<void> _releasePlayersForExport() async {
+    if (_players.isEmpty) {
+      widget.controller.notifyPreviewReleased();
+      if (mounted) setState(() {});
+      return;
+    }
+    final players = Map<String, VideoPlayerController>.from(_players);
+    _players.clear();
+    for (final player in players.values) {
+      player.removeListener(_onPlayerTick);
+      try {
+        await player.pause();
+      } catch (_) {
+        // A disposed or failed player is already idle.
+      }
+      await player.dispose();
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 180));
+    widget.controller.notifyPreviewReleased();
+    if (mounted) setState(() {});
   }
 
   Future<void> _applyPlaybackIntent() async {

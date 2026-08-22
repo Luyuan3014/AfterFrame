@@ -201,14 +201,25 @@ class MediaEngine {
     int count = 10,
   }) async {
     final safeDuration = durationMs.clamp(1, 1 << 31).toInt();
-    final futures = List.generate(count, (index) {
-      final time = ((safeDuration - 1) * index / (count - 1)).round();
-      return extractFrame(
-        uri,
-        time,
-      ).then((path) => FrameSample(timeMs: time, path: path));
-    });
-    return Future.wait(futures);
+    final samples = await Future.wait(
+      List.generate(count, (index) async {
+        final time = count <= 1
+            ? 0
+            : ((safeDuration - 1) * index / (count - 1)).round();
+        try {
+          final path = await extractFrame(uri, time);
+          if (path.isEmpty) return null;
+          return FrameSample(timeMs: time, path: path);
+        } catch (_) {
+          return null;
+        }
+      }),
+    );
+    final frames = samples.whereType<FrameSample>().toList(growable: false);
+    if (frames.isEmpty) {
+      throw const MediaEngineException('FRAME_EMPTY', '封面提取失败');
+    }
+    return frames;
   }
 
   Future<PublishedLive> exportLive({

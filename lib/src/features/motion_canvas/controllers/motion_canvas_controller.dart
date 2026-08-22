@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/animation.dart';
@@ -312,9 +313,47 @@ class MotionCanvasController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Completer<void>? _previewRelease;
+
   void setExporting(bool value) {
+    if (isExporting == value) return;
     isExporting = value;
-    if (value) isPlaying = false;
+    if (value) {
+      isPlaying = false;
+      _previewRelease = Completer<void>();
+    } else {
+      notifyPreviewReleased();
+      _previewRelease = null;
+    }
     notifyListeners();
+  }
+
+  /// Releases Studio preview decoders before Media3 export starts. Three Live
+  /// or 1080p sources otherwise keep three ExoPlayers alive and the export
+  /// decoder pool runs out of memory.
+  Future<void> prepareExport() async {
+    setExporting(true);
+    final gate = _previewRelease;
+    if (gate == null) return;
+    if (!hasListeners) {
+      notifyPreviewReleased();
+      return;
+    }
+    try {
+      await gate.future.timeout(const Duration(milliseconds: 1500));
+    } on TimeoutException {
+      // Widget tests and a missing renderer must not block export.
+    }
+  }
+
+  void notifyPreviewReleased() {
+    final gate = _previewRelease;
+    if (gate != null && !gate.isCompleted) gate.complete();
+  }
+
+  @override
+  void dispose() {
+    notifyPreviewReleased();
+    super.dispose();
   }
 }

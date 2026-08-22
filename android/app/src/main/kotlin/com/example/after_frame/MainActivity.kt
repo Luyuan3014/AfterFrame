@@ -464,14 +464,37 @@ class MainActivity : FlutterActivity() {
             } else {
                 retriever.setDataSource(this, uri)
             }
-            val option = if (closest) {
-                MediaMetadataRetriever.OPTION_CLOSEST
+            val duration = retriever.extractMetadata(
+                MediaMetadataRetriever.METADATA_KEY_DURATION,
+            )?.toLongOrNull() ?: 0L
+            val clamped = if (duration > 0L) {
+                timeMs.coerceIn(0L, duration)
             } else {
-                MediaMetadataRetriever.OPTION_CLOSEST_SYNC
+                timeMs.coerceAtLeast(0L)
             }
-            val bitmap = retriever.getFrameAtTime(timeMs * 1_000L, option)
+            val options = if (closest) {
+                intArrayOf(
+                    MediaMetadataRetriever.OPTION_CLOSEST,
+                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                    MediaMetadataRetriever.OPTION_PREVIOUS_SYNC,
+                )
+            } else {
+                intArrayOf(MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            }
+            var bitmap: android.graphics.Bitmap? = null
+            for (option in options) {
+                bitmap = retriever.getFrameAtTime(clamped * 1_000L, option)
+                if (bitmap != null) break
+            }
+            if (bitmap == null && clamped != 0L) {
+                bitmap = retriever.getFrameAtTime(
+                    0L,
+                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                )
+            }
+            val frame = bitmap
                 ?: throw IllegalStateException("Unable to decode the video frame at ${timeMs}ms")
-            saveBitmap(bitmap, file, 92)
+            saveBitmap(frame, file, 92)
         } finally {
             retriever.release()
         }

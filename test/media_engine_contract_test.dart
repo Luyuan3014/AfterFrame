@@ -165,6 +165,30 @@ void main() {
     },
   );
 
+  test(
+    'extractTimeline keeps frames that succeed when one still fails',
+    () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            final time = (call.arguments as Map)['timeMs'] as int;
+            if (time > 4000) {
+              throw PlatformException(code: 'FRAME', message: 'decode failed');
+            }
+            return '/cache/frame_$time.jpg';
+          });
+
+      final frames = await const MediaEngine().extractTimeline(
+        asset.uri,
+        asset.durationMs,
+        count: 5,
+      );
+
+      expect(frames, isNotEmpty);
+      expect(frames.every((frame) => frame.timeMs <= 4000), isTrue);
+      expect(frames.every((frame) => frame.path.isNotEmpty), isTrue);
+    },
+  );
+
   test('deleteExport forwards the durable work identity', () async {
     MethodCall? captured;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

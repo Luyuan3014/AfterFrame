@@ -7,6 +7,7 @@ import '../models/media_asset.dart';
 import '../screens/video_picker_screen.dart';
 import '../services/media_engine.dart';
 import '../theme.dart';
+import '../widgets/studio_notice.dart';
 import '../localization/app_localizations.dart';
 import '../features/motion_canvas/controllers/motion_canvas_controller.dart';
 import '../features/motion_canvas/export/export_service.dart';
@@ -43,6 +44,7 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
   late final LiveEditorState _editorState;
   late final MotionCanvasController _canvas;
   late final MotionCanvasExportService _canvasExportService;
+  final StudioNoticeController _notice = StudioNoticeController();
   int _loadGeneration = 0;
 
   @override
@@ -65,6 +67,7 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
   @override
   void dispose() {
     _loadGeneration++;
+    _notice.dispose();
     _editorState.dispose();
     _canvas.removeListener(_refreshCanvas);
     _canvas.dispose();
@@ -122,18 +125,11 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
     if (removed == null) return;
     _adoptCanvasSources();
     final l10n = context.l10n;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(l10n.text('sourceRemoved')),
-          behavior: SnackBarBehavior.floating,
-          action: SnackBarAction(
-            label: l10n.text('undo'),
-            onPressed: () => _restoreCanvasClip(index, removed),
-          ),
-        ),
-      );
+    _notice.show(
+      message: l10n.text('sourceRemoved'),
+      actionLabel: l10n.text('undo'),
+      onAction: () => _restoreCanvasClip(index, removed),
+    );
   }
 
   void _restoreCanvasClip(int index, MotionClip clip) {
@@ -153,6 +149,7 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
 
   Future<void> _addSources() async {
     if (_canvas.isExporting || _editorState.isProcessing) return;
+    _notice.dismiss();
     final selected = await Navigator.of(context).push<List<MediaAsset>>(
       MaterialPageRoute(
         builder: (_) => VideoPickerScreen(
@@ -170,11 +167,15 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
   }
 
   Future<void> _generate() async {
+    if (_editorState.isLoading ||
+        _editorState.isProcessing ||
+        _canvas.isExporting) {
+      return;
+    }
     if (_editorState.composition.isCanvas) {
       await _generateCanvas();
       return;
     }
-    if (_editorState.selectedCover == null || _editorState.isProcessing) return;
     _editorState.setGenerateStatus(GenerateStatus.processing);
     try {
       // Keep the phase-one native processing contract and invocation order.
@@ -219,16 +220,20 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
   }
 
   Future<void> _generateCanvas() async {
-    if (_canvas.isExporting) return;
-    _canvas.setExporting(true);
+    _editorState.setGenerateStatus(GenerateStatus.processing);
+    await _canvas.prepareExport();
     try {
       final result = await _canvasExportService.export(_canvas);
       if (!mounted) return;
+      _editorState.setGenerateStatus(GenerateStatus.success);
       await _showSuccess(result.published);
       if (!mounted) return;
       Navigator.pop(context, toLiveExport(result.published, result.coverPath));
     } catch (_) {
-      if (mounted) _message('errorExport');
+      if (mounted) {
+        _editorState.setGenerateStatus(GenerateStatus.failed);
+        _message('errorExport');
+      }
     } finally {
       if (mounted) _canvas.setExporting(false);
     }
@@ -492,12 +497,15 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
   @override
   Widget build(BuildContext context) => LiveEditorScope(
     state: _editorState,
-    child: _LiveEditorScaffold(
-      onGenerate: _generate,
-      canvas: _canvas,
-      onEditCanvasClip: _editCanvasClip,
-      onRemoveCanvasClip: _removeCanvasClip,
-      onAddSources: _addSources,
+    child: StudioNoticeHost(
+      controller: _notice,
+      child: _LiveEditorScaffold(
+        onGenerate: _generate,
+        canvas: _canvas,
+        onEditCanvasClip: _editCanvasClip,
+        onRemoveCanvasClip: _removeCanvasClip,
+        onAddSources: _addSources,
+      ),
     ),
   );
 }
@@ -553,9 +561,8 @@ class _LiveEditorScaffoldState extends State<_LiveEditorScaffold> {
     final l10n = context.l10n;
     final composition = state.composition;
     final isCanvas = composition.isCanvas;
-    final canGenerate = isCanvas
-        ? !widget.canvas.isExporting
-        : state.selectedCover != null && !state.isProcessing;
+    final exporting = isCanvas ? widget.canvas.isExporting : state.isProcessing;
+    final canGenerate = !state.isLoading && !exporting;
     return Scaffold(
       appBar: AppBar(
         title: Column(
@@ -586,13 +593,23 @@ class _LiveEditorScaffoldState extends State<_LiveEditorScaffold> {
         actions: [
           TextButton(
             onPressed: canGenerate ? widget.onGenerate : null,
-            child: Text(
-              l10n.text('export'),
-              style: const TextStyle(
-                color: AfterFrameColors.lime,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
+            child: exporting
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: AfterFrameColors.lime,
+                    ),
+                  )
+                : Text(
+                    l10n.text('export'),
+                    style: TextStyle(
+                      color: AfterFrameColors.lime.withValues(
+                        alpha: canGenerate ? 1 : .38,
+                      ),
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
           ),
         ],
       ),
@@ -648,13 +665,16 @@ class _LiveEditorScaffoldState extends State<_LiveEditorScaffold> {
                               ? StudioCanvasPreview(
                                   key: const ValueKey('canvasPreview'),
                                   controller: widget.canvas,
-                                  active: !_previewRouteOpen,
+                                  active:
+                                      !_previewRouteOpen &&
+                                      !widget.canvas.isExporting,
                                   onFullscreen: () =>
                                       _openFullscreen(composition),
                                 )
                               : LivePreviewCard(
                                   key: const ValueKey('singlePreview'),
-                                  active: !_previewRouteOpen,
+                                  active:
+                                      !_previewRouteOpen && !state.isProcessing,
                                   onFullscreen: () =>
                                       _openFullscreen(composition),
                                 ),

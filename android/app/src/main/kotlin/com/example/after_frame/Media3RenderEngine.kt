@@ -32,6 +32,7 @@ import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.Transformer
 import io.flutter.plugin.common.MethodCall
 import java.io.File
+import java.nio.ByteBuffer
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -54,8 +55,96 @@ class Media3RenderEngine(
 
     fun render(call: MethodCall, work: File): File {
         cancelled = false
-        val request = RenderRequest.from(call)
-        val destination = File(work, "motion.mp4")
+        val request = prepare(RenderRequest.from(call))
+        if (request.sources.size >= 3 && emulatorDecoderLimit()) {
+            return renderStaged(request, work)
+        }
+        return try {
+            renderOnce(request, File(work, "motion.mp4"))
+        } catch (error: Exception) {
+            if (cancelled) throw error
+            val canRetryMuted = request.keepAudio && request.audioAvailable.any { it }
+            if (canRetryMuted) {
+                try {
+                    return renderOnce(
+                        request.copy(
+                            keepAudio = false,
+                            audioAvailable = List(request.sources.size) { false },
+                        ),
+                        File(work, "motion-muted.mp4"),
+                    )
+                } catch (mutedError: Exception) {
+                    if (!cancelled && request.sources.size >= 3) {
+                        return renderStaged(request, work)
+                    }
+                    throw mutedError
+                }
+            }
+            if (request.sources.size >= 3 && MediaExportPolicy.decoderPressure(error)) {
+                return renderStaged(request, work)
+            }
+            throw error
+        }
+    }
+
+    private fun emulatorDecoderLimit(): Boolean =
+        MediaExportPolicy.limitedConcurrentDecoders(
+            hardware = android.os.Build.HARDWARE,
+            fingerprint = android.os.Build.FINGERPRINT,
+            model = android.os.Build.MODEL,
+        )
+
+    /**
+     * Goldfish / low-end devices can only keep about two 1080p decoders alive.
+     * A 3-cell collage therefore composes two frames first, then overlays the
+     * remaining cell onto that already-baked canvas.
+     */
+    private fun renderStaged(request: RenderRequest, work: File): File {
+        require(request.sources.size >= 3 && request.slots.size == request.sources.size) {
+            "分阶段拼图需要至少 3 段带 Frame 的素材"
+        }
+        val first = request.copy(
+            sources = request.sources.take(2),
+            slots = request.slots.take(2),
+            crops = request.crops.take(2),
+            keepAudio = false,
+            audioAvailable = listOf(false, false),
+            seamSlots = request.slots.take(2),
+            externalAudio = null,
+        )
+        val partial = renderOnce(first, File(work, "stage1.mp4"))
+        val bakedDuration = mediaDurationMs(Uri.fromFile(partial)).let { duration ->
+            if (duration > 0L) duration else (request.sources[0].endMs - request.sources[0].startMs)
+        }
+        val background = Source(
+            uri = Uri.fromFile(partial),
+            startMs = 0L,
+            endMs = bakedDuration.coerceAtLeast(1L),
+            baked = true,
+        )
+        val remaining = request.sources.drop(2)
+        val audio = request.sources.getOrNull(request.audioSourceIndex)?.takeIf {
+            request.keepAudio && request.hasUsableAudio(request.audioSourceIndex)
+        }
+        return renderOnce(
+            request.copy(
+                sources = listOf(background) + remaining,
+                slots = listOf(
+                    Slot(0, 0, request.canvasWidth, request.canvasHeight),
+                ) + request.slots.drop(2),
+                crops = listOf(CropWindow(0f, 0f, 1f, 1f)) + request.crops.drop(2),
+                keepAudio = audio != null,
+                audioAvailable = listOf(false) + remaining.map { false },
+                audioSourceIndex = 0,
+                seamSlots = request.slots,
+                externalAudio = audio,
+            ),
+            File(work, "motion.mp4"),
+        )
+    }
+
+    private fun renderOnce(request: RenderRequest, destination: File): File {
+        destination.delete()
         val completed = CountDownLatch(1)
         val failure = AtomicReference<Throwable?>()
 
@@ -125,7 +214,7 @@ class Media3RenderEngine(
                 slot = null,
                 crop = null,
             )
-            val sequence = if (request.keepAudio && hasAudio(source.uri)) {
+            val sequence = if (request.keepAudio && request.hasUsableAudio(0)) {
                 EditedMediaItemSequence.withAudioAndVideoFrom(listOf(item))
             } else {
                 EditedMediaItemSequence.withVideoFrom(listOf(item))
@@ -151,8 +240,13 @@ class Media3RenderEngine(
             )
         }.toMutableList()
 
-        val audioSource = request.sources[request.audioSourceIndex]
-        if (request.keepAudio && hasAudio(audioSource.uri)) {
+        val audioSource = when {
+            request.keepAudio && request.externalAudio != null -> request.externalAudio
+            request.keepAudio && request.hasUsableAudio(request.audioSourceIndex) ->
+                request.sources.getOrNull(request.audioSourceIndex)
+            else -> null
+        }
+        if (audioSource != null) {
             sequences += EditedMediaItemSequence.withAudioFrom(
                 listOf(
                     editedItem(
@@ -175,7 +269,11 @@ class Media3RenderEngine(
         // nearest primary timestamp. Abutting content seams therefore shimmer.
         // Paint opaque static bars into the planned gutters after compose so
         // the join is identical on every encoded frame.
-        seamOverlayEffect(slots, request.canvasWidth, request.canvasHeight)?.let { seam ->
+        seamOverlayEffect(
+            request.seamSlots.ifEmpty { slots },
+            request.canvasWidth,
+            request.canvasHeight,
+        )?.let { seam ->
             builder.setEffects(Effects(/* audioProcessors= */ emptyList(), listOf(seam)))
         }
         return builder.build()
@@ -267,7 +365,7 @@ class Media3RenderEngine(
         crop: CropWindow?,
     ): EditedMediaItem {
         val mediaItem = MediaItem.Builder()
-            .setUri(source.uri)
+            .setUri(playableMediaUri(source.uri))
             .setClippingConfiguration(
                 MediaItem.ClippingConfiguration.Builder()
                     .setStartPositionMs(source.startMs)
@@ -279,9 +377,11 @@ class Media3RenderEngine(
             .setRemoveAudio(removeAudio)
             .setRemoveVideo(removeVideo)
             .setFrameRate(30)
-        if (request.speed != 1f) builder.setSpeed(ConstantSpeedProvider(request.speed))
+        if (!source.baked && request.speed != 1f) {
+            builder.setSpeed(ConstantSpeedProvider(request.speed))
+        }
         if (!removeVideo) {
-            builder.setEffects(Effects(emptyList(), videoEffects(request, slot, crop)))
+            builder.setEffects(Effects(emptyList(), videoEffects(request, slot, crop, source.baked)))
         }
         return builder.build()
     }
@@ -290,6 +390,7 @@ class Media3RenderEngine(
         request: RenderRequest,
         slot: Slot?,
         crop: CropWindow?,
+        baked: Boolean,
     ): List<Effect> {
         val effects = mutableListOf<Effect>()
         if (slot != null && crop != null) {
@@ -309,7 +410,7 @@ class Media3RenderEngine(
         } else {
             effects += Presentation.createForShortSide(1080)
         }
-        if (request.enhancement) {
+        if (request.enhancement && !baked) {
             effects += HslAdjustment.Builder()
                 .adjustSaturation(8f)
                 .adjustLightness(2f)
@@ -326,16 +427,94 @@ class Media3RenderEngine(
         return effects
     }
 
-    private fun hasAudio(uri: Uri): Boolean {
+    /**
+     * Live photos arrive as `file://` cache MP4s. Probing them through
+     * ContentResolver on the main thread can hang, so duration and audio are
+     * resolved on the export worker before Transformer starts.
+     */
+    private fun prepare(request: RenderRequest): RenderRequest {
+        val sources = request.sources.map { source ->
+            val durationMs = mediaDurationMs(source.uri)
+            val window = MediaClipWindows.clamp(source.startMs, source.endMs, durationMs)
+            source.copy(startMs = window[0], endMs = window[1])
+        }
+        val audioAvailable = sources.map { hasUsableAudio(it.uri) }
+        return request.copy(sources = sources, audioAvailable = audioAvailable)
+    }
+
+    private fun playableMediaUri(uri: Uri): Uri {
+        if (uri.scheme != "file") return uri
+        val path = uri.path ?: return uri
+        return Uri.fromFile(File(path))
+    }
+
+    private fun openExtractor(extractor: MediaExtractor, uri: Uri) {
+        if (uri.scheme == "file") {
+            val path = requireNotNull(uri.path) { "Invalid file URI" }
+            extractor.setDataSource(path)
+        } else {
+            extractor.setDataSource(context, uri, null)
+        }
+    }
+
+    private fun hasUsableAudio(uri: Uri): Boolean {
         val extractor = MediaExtractor()
         return try {
-            extractor.setDataSource(context, uri, null)
-            (0 until extractor.trackCount).any { index ->
+            openExtractor(extractor, uri)
+            val audioIndex = (0 until extractor.trackCount).firstOrNull { index ->
                 extractor.getTrackFormat(index).getString(android.media.MediaFormat.KEY_MIME)
                     ?.startsWith("audio/") == true
+            } ?: return false
+            extractor.selectTrack(audioIndex)
+            val buffer = ByteBuffer.allocateDirect(65_536)
+            var samples = 0
+            while (samples < 2) {
+                buffer.clear()
+                val size = extractor.readSampleData(buffer, 0)
+                if (size < 0) break
+                samples += 1
+                extractor.advance()
             }
+            samples > 0
         } catch (_: Exception) {
             false
+        } finally {
+            extractor.release()
+        }
+    }
+
+    private fun mediaDurationMs(uri: Uri): Long {
+        val extractor = MediaExtractor()
+        return try {
+            openExtractor(extractor, uri)
+            var videoTrack = -1
+            var formatDurationUs = 0L
+            for (index in 0 until extractor.trackCount) {
+                val format = extractor.getTrackFormat(index)
+                val mime = format.getString(android.media.MediaFormat.KEY_MIME) ?: continue
+                if (!mime.startsWith("video/")) continue
+                videoTrack = index
+                if (format.containsKey(android.media.MediaFormat.KEY_DURATION)) {
+                    formatDurationUs = format.getLong(android.media.MediaFormat.KEY_DURATION)
+                }
+                break
+            }
+            if (videoTrack < 0) return 0L
+            extractor.selectTrack(videoTrack)
+            extractor.seekTo(Long.MAX_VALUE, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+            var lastUs = extractor.sampleTime
+            while (extractor.advance()) {
+                if (extractor.sampleTime >= 0L) lastUs = extractor.sampleTime
+            }
+            val sampleEndMs = if (lastUs > 0L) lastUs / 1_000L + 1L else 0L
+            val declaredMs = if (formatDurationUs > 0L) formatDurationUs / 1_000L else 0L
+            when {
+                sampleEndMs > 0L && declaredMs > 0L -> min(sampleEndMs, declaredMs)
+                sampleEndMs > 0L -> sampleEndMs
+                else -> declaredMs
+            }
+        } catch (_: Exception) {
+            0L
         } finally {
             extractor.release()
         }
@@ -360,6 +539,7 @@ class Media3RenderEngine(
         val uri: Uri,
         val startMs: Long,
         val endMs: Long,
+        val baked: Boolean = false,
     )
 
     private data class Slot(
@@ -388,9 +568,19 @@ class Media3RenderEngine(
         val crops: List<CropWindow>,
         val canvasWidth: Int,
         val canvasHeight: Int,
+        val audioAvailable: List<Boolean> = emptyList(),
+        val seamSlots: List<Slot> = emptyList(),
+        val externalAudio: Source? = null,
     ) {
         val canOptimizeTrim: Boolean
-            get() = sources.size == 1 && speed == 1f && !enhancement && transition == 0
+            get() = sources.size == 1 &&
+                speed == 1f &&
+                !enhancement &&
+                transition == 0 &&
+                sources.none { it.uri.scheme == "file" }
+
+        fun hasUsableAudio(index: Int): Boolean =
+            audioAvailable.getOrElse(index) { false }
 
         companion object {
             fun from(call: MethodCall): RenderRequest {

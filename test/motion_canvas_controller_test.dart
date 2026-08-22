@@ -215,6 +215,18 @@ void main() {
     expect(controller.clips, hasLength(1));
   });
 
+  test('prepareExport does not wait when no preview is attached', () async {
+    final controller = MotionCanvasController(
+      assets: const [landscape, portrait, square],
+    );
+    addTearDown(controller.dispose);
+
+    await controller.prepareExport();
+    expect(controller.isExporting, isTrue);
+    controller.setExporting(false);
+    expect(controller.isExporting, isFalse);
+  });
+
   test('thumbnails are addressed by clip id across reorders', () {
     final controller = MotionCanvasController(
       assets: const [landscape, portrait],
