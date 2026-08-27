@@ -65,14 +65,16 @@ class MotionCanvasExportService {
   }
 }
 
-LiveExport toLiveExport(PublishedLive published, String fallbackCover) =>
-    LiveExport(
-      path: published.liveUri,
-      createdAt: DateTime.now(),
-      coverPath: published.coverPath.isEmpty
-          ? fallbackCover
-          : published.coverPath,
-      galleryUri: published.galleryUri,
-      displayName: published.displayName,
-      shareMimeType: published.shareMimeType,
-    );
+LiveExport toLiveExport(
+  PublishedLive published,
+  String fallbackCover, {
+  int sourceCount = 1,
+}) => LiveExport(
+  path: published.liveUri,
+  createdAt: DateTime.now(),
+  coverPath: published.coverPath.isEmpty ? fallbackCover : published.coverPath,
+  galleryUri: published.galleryUri,
+  displayName: published.displayName,
+  shareMimeType: published.shareMimeType,
+  sourceCount: sourceCount,
+);

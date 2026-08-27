@@ -226,7 +226,14 @@ class _LiveEditorPageState extends State<LiveEditorPage> {
       _editorState.setGenerateStatus(GenerateStatus.success);
       await _showSuccess(result.published);
       if (!mounted) return;
-      Navigator.pop(context, toLiveExport(result.published, result.coverPath));
+      Navigator.pop(
+        context,
+        toLiveExport(
+          result.published,
+          result.coverPath,
+          sourceCount: _canvas.clips.length,
+        ),
+      );
     } catch (_) {
       if (mounted) {
         _editorState.setGenerateStatus(GenerateStatus.failed);

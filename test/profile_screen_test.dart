@@ -66,11 +66,11 @@ void main() {
     );
     expect(find.text('隐私与数据'), findsOneWidget);
     await tester.scrollUntilVisible(
-      find.text('关于余帧'),
+      find.text('关于 AfterFrame'),
       180,
       scrollable: find.byType(Scrollable).last,
     );
-    expect(find.text('关于余帧'), findsOneWidget);
+    expect(find.text('关于 AfterFrame'), findsOneWidget);
 
     await tester.tap(find.text('隐私与数据'));
     await tester.pumpAndSettle();
@@ -85,7 +85,7 @@ void main() {
     );
     await tester.tap(find.text('作品相册'));
     await tester.pumpAndSettle();
-    expect(find.text('我的余帧'), findsOneWidget);
+    expect(find.text('我的作品'), findsOneWidget);
 
     await tester.tap(find.text('我的').last);
     await tester.pumpAndSettle();

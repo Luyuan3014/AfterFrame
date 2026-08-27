@@ -49,4 +49,32 @@ void main() {
     expect(asset.thumbnailUri, asset.uri);
     expect(asset.durationLabel, '00:05');
   });
+
+  test(
+    'exports default to a Live frame and mark collages from source count',
+    () {
+      final live = LiveExport(
+        path: 'content://images/1',
+        createdAt: DateTime.fromMillisecondsSinceEpoch(1),
+        coverPath: '/cover.jpg',
+      );
+      final collage = LiveExport(
+        path: 'content://images/2',
+        createdAt: DateTime.fromMillisecondsSinceEpoch(1),
+        coverPath: '/cover.jpg',
+        sourceCount: 3,
+      );
+      final restored = LiveExport.fromMap(const {
+        'liveUri': 'content://images/3',
+        'createdAt': 1,
+        'coverPath': '/cover.jpg',
+        'sourceCount': 2,
+      });
+
+      expect(live.isCollage, isFalse);
+      expect(collage.isCollage, isTrue);
+      expect(restored.isCollage, isTrue);
+      expect(LiveExport.fromMap(const {'liveUri': 'x'}).sourceCount, 1);
+    },
+  );
 }

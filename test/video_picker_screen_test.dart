@@ -60,7 +60,10 @@ void main() {
         .setMockMethodCallHandler(channel, null);
   });
 
-  Future<void> pumpPicker(WidgetTester tester) async {
+  Future<void> pumpPicker(
+    WidgetTester tester, {
+    VideoLibraryFilter initialFilter = VideoLibraryFilter.all,
+  }) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.resetPhysicalSize);
@@ -69,7 +72,10 @@ void main() {
       MaterialApp(
         home: AppLanguageScope(
           controller: AppLanguageController(AppLanguage.english),
-          child: const VideoPickerScreen(engine: MediaEngine()),
+          child: VideoPickerScreen(
+            engine: const MediaEngine(),
+            initialFilter: initialFilter,
+          ),
         ),
       ),
     );
@@ -88,23 +94,24 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
   }
 
-  testWidgets('the announcement bar stays docked and leaves the library usable', (
-    tester,
-  ) async {
-    await pumpPicker(tester);
-    final screen = tester.getSize(find.byType(Scaffold));
+  testWidgets(
+    'the announcement bar stays docked and leaves the library usable',
+    (tester) async {
+      await pumpPicker(tester);
+      final screen = tester.getSize(find.byType(Scaffold));
 
-    await pick(tester, 0);
+      await pick(tester, 0);
 
-    final bar = tester.getRect(find.text('Enter Studio'));
-    expect(
-      bar.center.dy,
-      greaterThan(screen.height * .8),
-      reason: 'a bar that leaves the bottom would cover the library',
-    );
-    expect(find.byType(GridView), findsOneWidget);
-    expect(find.text('Choose Studio Material'), findsOneWidget);
-  });
+      final bar = tester.getRect(find.text('Enter Studio'));
+      expect(
+        bar.center.dy,
+        greaterThan(screen.height * .8),
+        reason: 'a bar that leaves the bottom would cover the library',
+      );
+      expect(find.byType(GridView), findsOneWidget);
+      expect(find.text('Choose Studio Material'), findsOneWidget);
+    },
+  );
 
   testWidgets('every source can still be picked after the first one', (
     tester,
@@ -176,5 +183,12 @@ void main() {
     expect(find.text('1 selected'), findsOneWidget);
     expect(find.text('Live Frame · original framing'), findsOneWidget);
     expect(find.text('Enter Studio'), findsOneWidget);
+  });
+
+  testWidgets('an initial Live filter hides ordinary videos', (tester) async {
+    await pumpPicker(tester, initialFilter: VideoLibraryFilter.live);
+
+    expect(find.byKey(const ValueKey('content://video/0')), findsNothing);
+    expect(find.byKey(const ValueKey('content://images/live')), findsOneWidget);
   });
 }

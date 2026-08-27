@@ -13,16 +13,18 @@ import '../theme.dart';
 import '../localization/app_localizations.dart';
 import '../widgets/media_preview_sheet.dart';
 
-enum _LibraryFilter { all, video, live }
+enum VideoLibraryFilter { all, video, live }
 
 class VideoPickerScreen extends StatefulWidget {
   const VideoPickerScreen({
     super.key,
     required this.engine,
     this.initialSelection = const [],
+    this.initialFilter = VideoLibraryFilter.all,
   });
   final MediaEngine engine;
   final List<MediaAsset> initialSelection;
+  final VideoLibraryFilter initialFilter;
 
   @override
   State<VideoPickerScreen> createState() => _VideoPickerScreenState();
@@ -32,7 +34,7 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
   final _scrollController = ScrollController();
   final List<String> _selectedIds = [];
   List<MediaAsset> _library = const [];
-  _LibraryFilter _filter = _LibraryFilter.all;
+  late VideoLibraryFilter _filter;
   bool _loading = true;
   bool _denied = false;
   bool _submitting = false;
@@ -42,6 +44,7 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
   @override
   void initState() {
     super.initState();
+    _filter = widget.initialFilter;
     _selectedIds.addAll([
       for (final asset in widget.initialSelection) asset.identity,
     ]);
@@ -82,12 +85,12 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
   }
 
   List<MediaAsset> get _visibleLibrary => switch (_filter) {
-    _LibraryFilter.all => _library,
-    _LibraryFilter.video => [
+    VideoLibraryFilter.all => _library,
+    VideoLibraryFilter.video => [
       for (final item in _library)
         if (!item.isMotionPhoto) item,
     ],
-    _LibraryFilter.live => [
+    VideoLibraryFilter.live => [
       for (final item in _library)
         if (item.isMotionPhoto) item,
     ],
@@ -266,14 +269,16 @@ class _VideoPickerScreenState extends State<VideoPickerScreen> {
     final visible = _visibleLibrary;
     if (visible.isEmpty) {
       return _LibraryEmpty(
-        icon: _filter == _LibraryFilter.live
+        icon: _filter == VideoLibraryFilter.live
             ? Icons.motion_photos_on_outlined
             : Icons.videocam_outlined,
         title: context.l10n.text(
-          _filter == _LibraryFilter.live ? 'libraryEmptyLive' : 'libraryEmpty',
+          _filter == VideoLibraryFilter.live
+              ? 'libraryEmptyLive'
+              : 'libraryEmpty',
         ),
         detail: context.l10n.text(
-          _filter == _LibraryFilter.live
+          _filter == VideoLibraryFilter.live
               ? 'libraryEmptyLiveHint'
               : 'libraryEmptyHint',
         ),
@@ -329,10 +334,10 @@ class _LibraryFilters extends StatelessWidget {
     required this.onChanged,
   });
 
-  final _LibraryFilter filter;
+  final VideoLibraryFilter filter;
   final int videoCount;
   final int liveCount;
-  final ValueChanged<_LibraryFilter> onChanged;
+  final ValueChanged<VideoLibraryFilter> onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -343,23 +348,23 @@ class _LibraryFilters extends StatelessWidget {
         children: [
           _FilterChip(
             label: l10n.text('pickFilterAll'),
-            selected: filter == _LibraryFilter.all,
-            onTap: () => onChanged(_LibraryFilter.all),
+            selected: filter == VideoLibraryFilter.all,
+            onTap: () => onChanged(VideoLibraryFilter.all),
           ),
           const SizedBox(width: 8),
           _FilterChip(
             label: l10n.text('pickFilterVideo'),
             count: videoCount,
-            selected: filter == _LibraryFilter.video,
-            onTap: () => onChanged(_LibraryFilter.video),
+            selected: filter == VideoLibraryFilter.video,
+            onTap: () => onChanged(VideoLibraryFilter.video),
           ),
           const SizedBox(width: 8),
           _FilterChip(
             label: l10n.text('pickFilterLive'),
             count: liveCount,
-            selected: filter == _LibraryFilter.live,
+            selected: filter == VideoLibraryFilter.live,
             live: true,
-            onTap: () => onChanged(_LibraryFilter.live),
+            onTap: () => onChanged(VideoLibraryFilter.live),
           ),
         ],
       ),
@@ -399,7 +404,9 @@ class _FilterChip extends StatelessWidget {
                 Icon(
                   Icons.motion_photos_on_rounded,
                   size: 14,
-                  color: selected ? AfterFrameColors.ink : AfterFrameColors.lime,
+                  color: selected
+                      ? AfterFrameColors.ink
+                      : AfterFrameColors.lime,
                 ),
                 const SizedBox(width: 5),
               ],
@@ -530,11 +537,7 @@ class _SelectedThumb extends StatelessWidget {
                 ),
               ),
             ),
-            Positioned(
-              left: 5,
-              top: 5,
-              child: _OrderBadge(order: order),
-            ),
+            Positioned(left: 5, top: 5, child: _OrderBadge(order: order)),
             if (asset.isMotionPhoto)
               const Positioned(
                 right: 5,
@@ -681,11 +684,7 @@ class _VideoTileState extends State<_VideoTile> {
                 ),
               ),
               if (widget.asset.isMotionPhoto)
-                const Positioned(
-                  left: 7,
-                  top: 7,
-                  child: _LiveMark(),
-                ),
+                const Positioned(left: 7, top: 7, child: _LiveMark()),
               Positioned(
                 right: 5,
                 bottom: 4,
@@ -882,10 +881,9 @@ class _CompositionBar extends StatelessWidget {
     final title = isCanvas
         ? l10n.text('canvasSummary', {'count': assets.length})
         : l10n.text('singleFrameSummary');
-    final detail = l10n.text(
-      isCanvas ? 'canvasDetail' : 'singleFrameDetail',
-      {'count': assets.length},
-    );
+    final detail = l10n.text(isCanvas ? 'canvasDetail' : 'singleFrameDetail', {
+      'count': assets.length,
+    });
     final remaining = maxLiveSources - assets.length;
     return SafeArea(
       top: false,

@@ -22,6 +22,10 @@ void main() {
 
     expect(zh.text('enterStudio'), '进入 Studio');
     expect(en.text('enterStudio'), 'Enter Studio');
+    expect(zh.text('importVideo'), '导入视频');
+    expect(en.text('importVideo'), 'Import video');
+    expect(zh.text('navWorks'), '作品');
+    expect(en.text('navWorks'), 'Works');
     expect(zh.text('savedToAlbum'), contains('AfterFrame'));
     expect(en.text('savedToAlbum'), contains('AfterFrame'));
   });

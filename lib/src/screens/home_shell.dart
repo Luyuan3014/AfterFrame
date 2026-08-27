@@ -10,6 +10,7 @@ import '../live_editor/live_editor_page.dart';
 import '../localization/app_localizations.dart';
 import '../widgets/media_preview_sheet.dart';
 import '../widgets/app_update_card.dart';
+import 'home/create_page.dart';
 import 'video_picker_screen.dart';
 
 class HomeShell extends StatefulWidget {
@@ -49,12 +50,17 @@ class _HomeShellState extends State<HomeShell> {
     }
   }
 
-  Future<void> _create() async {
+  Future<void> _create({
+    VideoLibraryFilter filter = VideoLibraryFilter.all,
+  }) async {
     if (_picking) return;
     setState(() => _picking = true);
     try {
       final assets = await Navigator.of(context).push<List<MediaAsset>>(
-        MaterialPageRoute(builder: (_) => VideoPickerScreen(engine: _engine)),
+        MaterialPageRoute(
+          builder: (_) =>
+              VideoPickerScreen(engine: _engine, initialFilter: filter),
+        ),
       );
       if (!mounted || assets == null || assets.isEmpty) return;
       final result = await Navigator.of(context).push<LiveExport>(
@@ -171,13 +177,22 @@ class _HomeShellState extends State<HomeShell> {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     return Scaffold(
-      body: SafeArea(
-        bottom: false,
-        child: IndexedStack(
-          index: _page,
-          children: [
-            _Discover(onCreate: _create, loading: _picking),
-            _Works(
+      // The safe area is applied per tab rather than around the stack so the
+      // home ambience can still paint under the status bar cutout.
+      body: IndexedStack(
+        index: _page,
+        children: [
+          CreatePage(
+            onCreate: (filter) => _create(filter: filter),
+            loading: _picking,
+            exports: _exports,
+            onOpenWorks: () => setState(() => _page = 1),
+            onPreview: _previewExport,
+            active: _page == 0,
+          ),
+          SafeArea(
+            bottom: false,
+            child: _Works(
               exports: _exports,
               loading: _loadingExports,
               onCreate: () => _create(),
@@ -186,345 +201,47 @@ class _HomeShellState extends State<HomeShell> {
               onDelete: _deleteExport,
               deletingExports: _deletingExports,
             ),
-            _Profile(
+          ),
+          SafeArea(
+            bottom: false,
+            child: _Profile(
               active: _page == 2,
               onOpenWorks: () => setState(() => _page = 1),
             ),
-          ],
-        ),
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _page,
-        onDestinationSelected: (value) => setState(() => _page = value),
-        destinations: [
-          NavigationDestination(
-            icon: const Icon(Icons.auto_awesome_outlined),
-            selectedIcon: const Icon(Icons.auto_awesome),
-            label: l10n.text('navCreate'),
-          ),
-          NavigationDestination(
-            icon: const Icon(Icons.grid_view_outlined),
-            selectedIcon: const Icon(Icons.grid_view_rounded),
-            label: l10n.text('navWorks'),
-          ),
-          NavigationDestination(
-            icon: const Icon(Icons.person_outline_rounded),
-            selectedIcon: const Icon(Icons.person_rounded),
-            label: l10n.text('navProfile'),
           ),
         ],
       ),
-    );
-  }
-}
-
-class _Discover extends StatelessWidget {
-  const _Discover({required this.onCreate, required this.loading});
-  final VoidCallback onCreate;
-  final bool loading;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    return Stack(
-      children: [
-        const Positioned(
-          left: -80,
-          right: -80,
-          top: -120,
-          height: 360,
-          child: IgnorePointer(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  colors: [Color(0x222CFF79), Colors.transparent],
-                ),
-              ),
-            ),
+      bottomNavigationBar: DecoratedBox(
+        decoration: const BoxDecoration(
+          color: AfterFrameColors.navBar,
+          border: Border(
+            top: BorderSide(color: AfterFrameColors.navHairline, width: .5),
           ),
         ),
-        ListView(
-          padding: const EdgeInsets.fromLTRB(22, 20, 22, 36),
-          children: [
-            Row(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(14),
-                  child: Image.asset(
-                    'assets/branding/logo.png',
-                    width: 42,
-                    height: 42,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'AFTERFRAME',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 2.4,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      l10n.text('brandCn'),
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AfterFrameColors.muted,
-                        letterSpacing: 4,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+        child: NavigationBar(
+          selectedIndex: _page,
+          onDestinationSelected: (value) => setState(() => _page = value),
+          destinations: [
+            NavigationDestination(
+              icon: const Icon(Icons.auto_awesome_outlined),
+              selectedIcon: const Icon(Icons.auto_awesome),
+              label: l10n.text('navCreate'),
             ),
-            const SizedBox(height: 52),
-            Text(
-              l10n.text('heroTitle'),
-              style: Theme.of(context).textTheme.displaySmall,
+            NavigationDestination(
+              icon: const Icon(Icons.grid_view_outlined),
+              selectedIcon: const Icon(Icons.grid_view_rounded),
+              label: l10n.text('navWorks'),
             ),
-            const SizedBox(height: 16),
-            Text(
-              l10n.text('heroSubtitle'),
-              style: const TextStyle(
-                color: AfterFrameColors.muted,
-                fontSize: 15,
-                height: 1.55,
-              ),
+            NavigationDestination(
+              icon: const Icon(Icons.person_outline_rounded),
+              selectedIcon: const Icon(Icons.person_rounded),
+              label: l10n.text('navProfile'),
             ),
-            const SizedBox(height: 36),
-            _HeroCreate(onTap: onCreate, loading: loading),
-            const SizedBox(height: 16),
-            Text(
-              l10n.text('tipBody'),
-              style: const TextStyle(
-                color: AfterFrameColors.muted,
-                fontSize: 13,
-                height: 1.45,
-              ),
-            ),
-            const SizedBox(height: 40),
-            const _CreateSignals(),
           ],
-        ),
-      ],
-    );
-  }
-}
-
-class _HeroCreate extends StatelessWidget {
-  const _HeroCreate({required this.onTap, required this.loading});
-  final VoidCallback onTap;
-  final bool loading;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    return Semantics(
-      button: true,
-      label: l10n.text('importVideo'),
-      child: Material(
-        color: AfterFrameColors.paper,
-        borderRadius: BorderRadius.circular(32),
-        child: InkWell(
-          key: const Key('create-hero'),
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(32),
-          child: Ink(
-            height: 228,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(32),
-              gradient: const LinearGradient(
-                colors: [Color(0xFFF7F4EC), Color(0xFFD5E4C8)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(26, 22, 26, 24),
-              child: Stack(
-                children: [
-                  Positioned(
-                    right: -28,
-                    bottom: -48,
-                    child: Icon(
-                      Icons.motion_photos_on,
-                      size: 200,
-                      color: Colors.black.withValues(alpha: .06),
-                    ),
-                  ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 11,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.black,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          l10n.text('newMemory'),
-                          style: const TextStyle(
-                            fontSize: 10,
-                            letterSpacing: 1.6,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                      const Spacer(),
-                      Text(
-                        l10n.text('startFromVideo'),
-                        style: const TextStyle(
-                          color: Colors.black,
-                          fontSize: 32,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: -1.2,
-                          height: 1.05,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        l10n.text('startFromVideoDetail'),
-                        style: const TextStyle(
-                          color: Color(0xFF5A5F57),
-                          fontSize: 13,
-                          height: 1.4,
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      Row(
-                        children: [
-                          Container(
-                            width: 46,
-                            height: 46,
-                            decoration: const BoxDecoration(
-                              color: AfterFrameColors.lime,
-                              shape: BoxShape.circle,
-                            ),
-                            child: loading
-                                ? const Padding(
-                                    padding: EdgeInsets.all(12),
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.black,
-                                    ),
-                                  )
-                                : const Icon(
-                                    Icons.arrow_forward_rounded,
-                                    color: Colors.black,
-                                  ),
-                          ),
-                          const SizedBox(width: 12),
-                          Text(
-                            l10n.text('importVideo'),
-                            style: const TextStyle(
-                              color: Colors.black,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
         ),
       ),
     );
   }
-}
-
-class _CreateSignals extends StatelessWidget {
-  const _CreateSignals();
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: _CreateSignal(
-            icon: Icons.videocam_rounded,
-            title: l10n.text('createSignalVideo'),
-            detail: l10n.text('createSignalVideoDetail'),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _CreateSignal(
-            icon: Icons.motion_photos_on_rounded,
-            title: l10n.text('createSignalLive'),
-            detail: l10n.text('createSignalLiveDetail'),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _CreateSignal(
-            icon: Icons.grid_view_rounded,
-            title: l10n.text('createSignalCollage'),
-            detail: l10n.text('createSignalCollageDetail'),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _CreateSignal extends StatelessWidget {
-  const _CreateSignal({
-    required this.icon,
-    required this.title,
-    required this.detail,
-  });
-
-  final IconData icon;
-  final String title;
-  final String detail;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 2),
-    child: Column(
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: AfterFrameColors.lime.withValues(alpha: .12),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(icon, size: 20, color: AfterFrameColors.lime),
-        ),
-        const SizedBox(height: 10),
-        Text(
-          title,
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 5),
-        Text(
-          detail,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: AfterFrameColors.muted,
-            fontSize: 11,
-            height: 1.4,
-          ),
-        ),
-      ],
-    ),
-  );
 }
 
 class _Works extends StatelessWidget {
@@ -586,7 +303,7 @@ class _Works extends StatelessWidget {
                       final deleting = deletingExports.contains(item.path);
                       return Material(
                         color: AfterFrameColors.panelSoft,
-                        borderRadius: BorderRadius.circular(22),
+                        borderRadius: BorderRadius.circular(AfterFrameRadius.lg),
                         clipBehavior: Clip.antiAlias,
                         child: InkWell(
                           onTap: deleting ? null : () => onPreview(item),

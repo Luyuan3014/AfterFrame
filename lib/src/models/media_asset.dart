@@ -103,6 +103,7 @@ class LiveExport {
     this.galleryUri = '',
     this.displayName = 'AfterFrame',
     this.shareMimeType = 'video/mp4',
+    this.sourceCount = 1,
   });
   final String path;
   final DateTime createdAt;
@@ -110,6 +111,11 @@ class LiveExport {
   final String galleryUri;
   final String displayName;
   final String shareMimeType;
+
+  /// Number of source clips. Native index may omit this; default is a Live frame.
+  final int sourceCount;
+
+  bool get isCollage => sourceCount >= 2;
 
   factory LiveExport.fromMap(Map<Object?, Object?> map) => LiveExport(
     path: map['liveUri'] as String? ?? '',
@@ -120,5 +126,6 @@ class LiveExport {
     galleryUri: map['galleryUri'] as String? ?? '',
     displayName: map['displayName'] as String? ?? 'AfterFrame',
     shareMimeType: map['shareMimeType'] as String? ?? 'video/mp4',
+    sourceCount: (map['sourceCount'] as num?)?.toInt() ?? 1,
   );
 }
