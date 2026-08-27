@@ -226,77 +226,91 @@ class _Discover extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
+    return Stack(
       children: [
-        Row(
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.asset(
-                'assets/branding/logo.png',
-                width: 38,
-                height: 38,
-                fit: BoxFit.cover,
+        const Positioned(
+          left: -80,
+          right: -80,
+          top: -120,
+          height: 360,
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  colors: [Color(0x222CFF79), Colors.transparent],
+                ),
               ),
             ),
-            const SizedBox(width: 11),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          ),
+        ),
+        ListView(
+          padding: const EdgeInsets.fromLTRB(22, 20, 22, 36),
+          children: [
+            Row(
               children: [
-                const Text(
-                  'AFTERFRAME',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1.5,
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: Image.asset(
+                    'assets/branding/logo.png',
+                    width: 42,
+                    height: 42,
+                    fit: BoxFit.cover,
                   ),
                 ),
-                Text(
-                  l10n.text('brandCn'),
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: AfterFrameColors.muted,
-                    letterSpacing: 3,
-                  ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'AFTERFRAME',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 2.4,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      l10n.text('brandCn'),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AfterFrameColors.muted,
+                        letterSpacing: 4,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
-        ),
-        const SizedBox(height: 38),
-        Text(
-          l10n.text('heroTitle'),
-          style: Theme.of(context).textTheme.displaySmall,
-        ),
-        const SizedBox(height: 13),
-        Text(
-          l10n.text('heroSubtitle'),
-          style: const TextStyle(color: AfterFrameColors.muted, fontSize: 15),
-        ),
-        const SizedBox(height: 28),
-        _HeroCreate(onTap: onCreate, loading: loading),
-        const SizedBox(height: 34),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
+            const SizedBox(height: 52),
             Text(
-              l10n.text('createWays'),
-              style: Theme.of(context).textTheme.titleLarge,
+              l10n.text('heroTitle'),
+              style: Theme.of(context).textTheme.displaySmall,
             ),
+            const SizedBox(height: 16),
             Text(
-              l10n.text('createWaysHint'),
+              l10n.text('heroSubtitle'),
               style: const TextStyle(
                 color: AfterFrameColors.muted,
-                fontSize: 12,
+                fontSize: 15,
+                height: 1.55,
               ),
             ),
+            const SizedBox(height: 36),
+            _HeroCreate(onTap: onCreate, loading: loading),
+            const SizedBox(height: 16),
+            Text(
+              l10n.text('tipBody'),
+              style: const TextStyle(
+                color: AfterFrameColors.muted,
+                fontSize: 13,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 40),
+            const _CreateSignals(),
           ],
         ),
-        const SizedBox(height: 14),
-        _StudioEntry(onTap: onCreate),
-        const SizedBox(height: 12),
-        const _TipCard(),
       ],
     );
   }
@@ -310,106 +324,119 @@ class _HeroCreate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    return Material(
-      color: AfterFrameColors.paper,
-      borderRadius: BorderRadius.circular(30),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(30),
-        child: Container(
-          height: 210,
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(30),
-            gradient: const LinearGradient(
-              colors: [Color(0xFFF4F2EA), Color(0xFFDCE5D5)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-          child: Stack(
-            children: [
-              Positioned(
-                right: -22,
-                bottom: -42,
-                child: Icon(
-                  Icons.motion_photos_on,
-                  size: 190,
-                  color: Colors.black.withValues(alpha: .07),
-                ),
+    return Semantics(
+      button: true,
+      label: l10n.text('importVideo'),
+      child: Material(
+        color: AfterFrameColors.paper,
+        borderRadius: BorderRadius.circular(32),
+        child: InkWell(
+          key: const Key('create-hero'),
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(32),
+          child: Ink(
+            height: 228,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(32),
+              gradient: const LinearGradient(
+                colors: [Color(0xFFF7F4EC), Color(0xFFD5E4C8)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(26, 22, 26, 24),
+              child: Stack(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 11,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      l10n.text('newMemory'),
-                      style: const TextStyle(
-                        fontSize: 10,
-                        letterSpacing: 1.3,
-                        fontWeight: FontWeight.w800,
-                      ),
+                  Positioned(
+                    right: -28,
+                    bottom: -48,
+                    child: Icon(
+                      Icons.motion_photos_on,
+                      size: 200,
+                      color: Colors.black.withValues(alpha: .06),
                     ),
                   ),
-                  const Spacer(),
-                  Text(
-                    l10n.text('startFromVideo'),
-                    style: const TextStyle(
-                      color: Colors.black,
-                      fontSize: 28,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -1,
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    l10n.text('startFromVideoDetail'),
-                    style: const TextStyle(color: Color(0xFF555A54)),
-                  ),
-                  const SizedBox(height: 17),
-                  Row(
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Container(
-                        width: 43,
-                        height: 43,
-                        decoration: const BoxDecoration(
-                          color: AfterFrameColors.lime,
-                          shape: BoxShape.circle,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 11,
+                          vertical: 6,
                         ),
-                        child: loading
-                            ? const Padding(
-                                padding: EdgeInsets.all(12),
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.black,
-                                ),
-                              )
-                            : const Icon(
-                                Icons.arrow_forward_rounded,
-                                color: Colors.black,
-                              ),
+                        decoration: BoxDecoration(
+                          color: Colors.black,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          l10n.text('newMemory'),
+                          style: const TextStyle(
+                            fontSize: 10,
+                            letterSpacing: 1.6,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
                       ),
-                      const SizedBox(width: 12),
+                      const Spacer(),
                       Text(
-                        l10n.text('importVideo'),
+                        l10n.text('startFromVideo'),
                         style: const TextStyle(
                           color: Colors.black,
-                          fontWeight: FontWeight.w800,
+                          fontSize: 32,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -1.2,
+                          height: 1.05,
                         ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        l10n.text('startFromVideoDetail'),
+                        style: const TextStyle(
+                          color: Color(0xFF5A5F57),
+                          fontSize: 13,
+                          height: 1.4,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Row(
+                        children: [
+                          Container(
+                            width: 46,
+                            height: 46,
+                            decoration: const BoxDecoration(
+                              color: AfterFrameColors.lime,
+                              shape: BoxShape.circle,
+                            ),
+                            child: loading
+                                ? const Padding(
+                                    padding: EdgeInsets.all(12),
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.black,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.arrow_forward_rounded,
+                                    color: Colors.black,
+                                  ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            l10n.text('importVideo'),
+                            style: const TextStyle(
+                              color: Colors.black,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
                 ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -417,106 +444,87 @@ class _HeroCreate extends StatelessWidget {
   }
 }
 
-class _StudioEntry extends StatelessWidget {
-  const _StudioEntry({required this.onTap});
-  final VoidCallback onTap;
+class _CreateSignals extends StatelessWidget {
+  const _CreateSignals();
 
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(24),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Row(
-            children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: AfterFrameColors.lime,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Icon(
-                  Icons.video_collection_rounded,
-                  color: Colors.black,
-                ),
-              ),
-              const SizedBox(width: 15),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      l10n.text('studioEntryTitle'),
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      l10n.text('studioEntryDetail'),
-                      style: const TextStyle(
-                        color: AfterFrameColors.muted,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(Icons.arrow_forward_rounded, color: Colors.white54),
-            ],
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: _CreateSignal(
+            icon: Icons.videocam_rounded,
+            title: l10n.text('createSignalVideo'),
+            detail: l10n.text('createSignalVideoDetail'),
           ),
         ),
-      ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _CreateSignal(
+            icon: Icons.motion_photos_on_rounded,
+            title: l10n.text('createSignalLive'),
+            detail: l10n.text('createSignalLiveDetail'),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _CreateSignal(
+            icon: Icons.grid_view_rounded,
+            title: l10n.text('createSignalCollage'),
+            detail: l10n.text('createSignalCollageDetail'),
+          ),
+        ),
+      ],
     );
   }
 }
 
-class _TipCard extends StatelessWidget {
-  const _TipCard();
+class _CreateSignal extends StatelessWidget {
+  const _CreateSignal({
+    required this.icon,
+    required this.title,
+    required this.detail,
+  });
+
+  final IconData icon;
+  final String title;
+  final String detail;
+
   @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    return Card(
-      color: const Color(0xFF20231C),
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Row(
-          children: [
-            const Icon(
-              Icons.lightbulb_outline_rounded,
-              color: AfterFrameColors.lime,
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    l10n.text('tipTitle'),
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    l10n.text('tipBody'),
-                    style: const TextStyle(
-                      color: AfterFrameColors.muted,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(
-              Icons.chevron_right_rounded,
-              color: Colors.white.withValues(alpha: .5),
-            ),
-          ],
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 2),
+    child: Column(
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: AfterFrameColors.lime.withValues(alpha: .12),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, size: 20, color: AfterFrameColors.lime),
         ),
-      ),
-    );
-  }
+        const SizedBox(height: 10),
+        Text(
+          title,
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          detail,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: AfterFrameColors.muted,
+            fontSize: 11,
+            height: 1.4,
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _Works extends StatelessWidget {

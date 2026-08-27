@@ -5,18 +5,17 @@ import 'package:flutter/material.dart';
 import '../../../localization/app_localizations.dart';
 import '../../../theme.dart';
 import '../controllers/motion_canvas_controller.dart';
+import '../models/motion_clip.dart';
 
 class MotionClipTrack extends StatelessWidget {
   const MotionClipTrack({
     super.key,
     required this.controller,
-    required this.onEdit,
     required this.onRemove,
     this.onAdd,
   });
 
   final MotionCanvasController controller;
-  final ValueChanged<int> onEdit;
   final ValueChanged<int> onRemove;
   final VoidCallback? onAdd;
 
@@ -29,7 +28,7 @@ class MotionClipTrack extends StatelessWidget {
           child: ReorderableListView.builder(
             scrollDirection: Axis.horizontal,
             buildDefaultDragHandles: false,
-            padding: const EdgeInsets.symmetric(horizontal: 18),
+            padding: EdgeInsets.zero,
             itemCount: controller.clips.length,
             onReorder: controller.reorder,
             proxyDecorator: (child, _, animation) => ScaleTransition(
@@ -43,115 +42,13 @@ class MotionClipTrack extends StatelessWidget {
                 key: ValueKey(clip.id),
                 index: index,
                 child: GestureDetector(
-                  onTap: () {
-                    controller.selectClip(index);
-                    onEdit(index);
-                  },
-                  child: AnimatedContainer(
-                    duration: MotionCanvasController.motion,
-                    curve: MotionCanvasController.curve,
-                    width: 112,
-                    margin: const EdgeInsets.only(right: 10),
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: selected
-                          ? Colors.white12
-                          : Colors.white.withValues(alpha: .045),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: selected
-                            ? AfterFrameColors.lime.withValues(alpha: .65)
-                            : Colors.white10,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Stack(
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(11),
-                              child: SizedBox(
-                                width: 48,
-                                height: 78,
-                                child: clip.thumbnailPath == null
-                                    ? const ColoredBox(color: Color(0xFF292A2F))
-                                    : Image.file(
-                                        File(clip.thumbnailPath!),
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (_, _, _) =>
-                                            const ColoredBox(
-                                              color: Color(0xFF292A2F),
-                                            ),
-                                      ),
-                              ),
-                            ),
-                            if (clip.asset.isMotionPhoto)
-                              Positioned(
-                                left: 4,
-                                top: 4,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 4,
-                                    vertical: 1,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AfterFrameColors.lime,
-                                    borderRadius: BorderRadius.circular(5),
-                                  ),
-                                  child: Text(
-                                    context.l10n.text('liveBadge'),
-                                    style: const TextStyle(
-                                      color: AfterFrameColors.ink,
-                                      fontSize: 7,
-                                      fontWeight: FontWeight.w900,
-                                      letterSpacing: .4,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '0${index + 1}',
-                                style: const TextStyle(
-                                  fontSize: 10,
-                                  color: AfterFrameColors.muted,
-                                  letterSpacing: 1,
-                                ),
-                              ),
-                              const SizedBox(height: 5),
-                              Text(
-                                '${(clip.durationMs / 1000).toStringAsFixed(1)}s',
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 7),
-                              Row(
-                                children: [
-                                  const Icon(
-                                    Icons.drag_indicator_rounded,
-                                    size: 16,
-                                    color: Colors.white38,
-                                  ),
-                                  if (controller.canRemoveClip)
-                                    _RemoveClipButton(
-                                      onPressed: () => onRemove(index),
-                                    ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
+                  onTap: () => controller.selectClip(index),
+                  child: _ClipThumb(
+                    clip: clip,
+                    index: index,
+                    selected: selected,
+                    canRemove: controller.canRemoveClip,
+                    onRemove: () => onRemove(index),
                   ),
                 ),
               );
@@ -160,12 +57,126 @@ class MotionClipTrack extends StatelessWidget {
         ),
         if (controller.canAddClip && onAdd != null)
           Padding(
-            padding: const EdgeInsets.only(right: 18),
+            padding: const EdgeInsets.only(left: 8),
             child: _AddClipButton(onPressed: onAdd!),
           ),
       ],
     ),
   );
+}
+
+class _ClipThumb extends StatelessWidget {
+  const _ClipThumb({
+    required this.clip,
+    required this.index,
+    required this.selected,
+    required this.canRemove,
+    required this.onRemove,
+  });
+
+  final MotionClip clip;
+  final int index;
+  final bool selected;
+  final bool canRemove;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: MotionCanvasController.motion,
+      curve: MotionCanvasController.curve,
+      width: 72,
+      margin: const EdgeInsets.only(right: 8),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: selected
+              ? AfterFrameColors.lime.withValues(alpha: .85)
+              : Colors.white12,
+          width: selected ? 2 : 1,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          clip.thumbnailPath == null
+              ? const ColoredBox(color: Color(0xFF292A2F))
+              : Image.file(
+                  File(clip.thumbnailPath!),
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) =>
+                      const ColoredBox(color: Color(0xFF292A2F)),
+                ),
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.transparent, Color(0xB3000000)],
+                begin: Alignment.center,
+                end: Alignment.bottomCenter,
+              ),
+            ),
+          ),
+          Positioned(
+            left: 6,
+            top: 6,
+            child: Container(
+              width: 18,
+              height: 18,
+              alignment: Alignment.center,
+              decoration: const BoxDecoration(
+                color: AfterFrameColors.lime,
+                shape: BoxShape.circle,
+              ),
+              child: Text(
+                '${index + 1}',
+                style: const TextStyle(
+                  color: AfterFrameColors.ink,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ),
+          if (clip.asset.isMotionPhoto)
+            Positioned(
+              right: 5,
+              top: 6,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(
+                  color: AfterFrameColors.lime,
+                  borderRadius: BorderRadius.circular(5),
+                ),
+                child: Text(
+                  context.l10n.text('liveBadge'),
+                  style: const TextStyle(
+                    color: AfterFrameColors.ink,
+                    fontSize: 7,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: .4,
+                  ),
+                ),
+              ),
+            ),
+          Positioned(
+            left: 6,
+            bottom: 6,
+            child: Text(
+              '${(clip.durationMs / 1000).toStringAsFixed(1)}s',
+              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800),
+            ),
+          ),
+          if (canRemove)
+            Positioned(
+              right: 2,
+              bottom: 2,
+              child: _RemoveClipButton(onPressed: onRemove),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 /// Removing a source is how the user changes the work's shape: drop to one clip
@@ -219,8 +230,8 @@ class _AddClipButton extends StatelessWidget {
           onTap: onPressed,
           borderRadius: BorderRadius.circular(16),
           child: Ink(
-            width: 72,
-            height: 88,
+            width: 56,
+            height: 96,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
@@ -228,33 +239,10 @@ class _AddClipButton extends StatelessWidget {
               ),
               color: AfterFrameColors.lime.withValues(alpha: .08),
             ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    color: AfterFrameColors.lime.withValues(alpha: .18),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.add_rounded,
-                    size: 18,
-                    color: AfterFrameColors.lime,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  context.l10n.text('addSource'),
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.w800,
-                    color: AfterFrameColors.lime,
-                  ),
-                ),
-              ],
+            child: const Icon(
+              Icons.add_rounded,
+              size: 22,
+              color: AfterFrameColors.lime,
             ),
           ),
         ),

@@ -6,6 +6,7 @@ import 'package:video_player/video_player.dart';
 
 import '../localization/app_localizations.dart';
 import '../theme.dart';
+import '../widgets/live_playback_scale.dart';
 
 Future<void> showMediaPreview(
   BuildContext context, {
@@ -58,6 +59,7 @@ class _MediaPreviewSheetState extends State<MediaPreviewSheet> {
             File(parsed.scheme == 'file' ? parsed.toFilePath() : widget.uri),
           );
     _controller = controller;
+    controller.addListener(_onPlayerChanged);
     try {
       await controller.initialize();
       await controller.setLooping(true);
@@ -67,6 +69,10 @@ class _MediaPreviewSheetState extends State<MediaPreviewSheet> {
       _error = error;
       if (mounted) setState(() {});
     }
+  }
+
+  void _onPlayerChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _togglePlayback() async {
@@ -89,7 +95,10 @@ class _MediaPreviewSheetState extends State<MediaPreviewSheet> {
   @override
   void dispose() {
     final controller = _controller;
-    if (controller != null) unawaited(controller.dispose());
+    if (controller != null) {
+      controller.removeListener(_onPlayerChanged);
+      unawaited(controller.dispose());
+    }
     super.dispose();
   }
 
@@ -97,6 +106,7 @@ class _MediaPreviewSheetState extends State<MediaPreviewSheet> {
   Widget build(BuildContext context) {
     final controller = _controller;
     final ready = controller?.value.isInitialized ?? false;
+    final playing = ready && (controller?.value.isPlaying ?? false);
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 8, 18, 20),
       child: Column(
@@ -138,17 +148,25 @@ class _MediaPreviewSheetState extends State<MediaPreviewSheet> {
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        if (widget.coverPath case final path?)
-                          Image.file(File(path), fit: BoxFit.contain),
-                        if (ready)
-                          FittedBox(
-                            fit: BoxFit.contain,
-                            child: SizedBox(
-                              width: controller!.value.size.width,
-                              height: controller.value.size.height,
-                              child: VideoPlayer(controller),
-                            ),
+                        LivePlaybackScale(
+                          playing: playing,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              if (widget.coverPath case final path?)
+                                Image.file(File(path), fit: BoxFit.contain),
+                              if (ready && controller != null)
+                                FittedBox(
+                                  fit: BoxFit.contain,
+                                  child: SizedBox(
+                                    width: controller.value.size.width,
+                                    height: controller.value.size.height,
+                                    child: VideoPlayer(controller),
+                                  ),
+                                ),
+                            ],
                           ),
+                        ),
                         if (!ready)
                           Center(
                             child: _error == null
@@ -170,14 +188,28 @@ class _MediaPreviewSheetState extends State<MediaPreviewSheet> {
                           ),
                         if (ready)
                           Center(
-                            child: IconButton.filledTonal(
-                              iconSize: 32,
-                              onPressed: _togglePlayback,
-                              icon: Icon(
-                                controller!.value.isPlaying
-                                    ? Icons.pause_rounded
-                                    : Icons.play_arrow_rounded,
+                            child: AnimatedOpacity(
+                              duration: const Duration(milliseconds: 180),
+                              opacity: playing ? 0 : 1,
+                              child: IconButton.filledTonal(
+                                tooltip: context.l10n.text(
+                                  playing ? 'pauseLive' : 'playLive',
+                                ),
+                                iconSize: 32,
+                                onPressed: _togglePlayback,
+                                icon: Icon(
+                                  playing
+                                      ? Icons.pause_rounded
+                                      : Icons.play_arrow_rounded,
+                                ),
                               ),
+                            ),
+                          ),
+                        if (ready)
+                          Positioned.fill(
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.translucent,
+                              onTap: _togglePlayback,
                             ),
                           ),
                       ],

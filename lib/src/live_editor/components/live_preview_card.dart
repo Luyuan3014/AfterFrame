@@ -7,6 +7,7 @@ import 'package:video_player/video_player.dart';
 
 import '../../localization/app_localizations.dart';
 import '../../theme.dart';
+import '../../widgets/live_playback_scale.dart';
 import '../live_editor_scope.dart';
 import '../models/live_editor_state.dart';
 
@@ -184,8 +185,8 @@ class _LivePreviewCardState extends State<LivePreviewCard>
         await controller.play();
       } else {
         await controller.pause();
-        await controller.seekTo(Duration(milliseconds: state.endTime));
-        state.setCurrentPosition(state.endTime);
+        await controller.seekTo(Duration(milliseconds: state.coverFrame));
+        state.setCurrentPosition(state.coverFrame);
       }
     } finally {
       _handlingRangeEnd = false;
@@ -198,6 +199,8 @@ class _LivePreviewCardState extends State<LivePreviewCard>
     final state = LiveEditorScope.of(context);
     if (controller.value.isPlaying) {
       await controller.pause();
+      await controller.seekTo(Duration(milliseconds: state.coverFrame));
+      state.setCurrentPosition(state.coverFrame);
       return;
     }
     final position = controller.value.position.inMilliseconds;
@@ -254,35 +257,50 @@ class _LivePreviewCardState extends State<LivePreviewCard>
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  if (cover != null)
-                    Image.file(File(cover.path), fit: BoxFit.contain),
-                  if (controller != null && controller.value.isInitialized)
-                    _CoverVideo(controller: controller),
+                  LivePlaybackScale(
+                    playing: playing,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (cover != null)
+                          Image.file(File(cover.path), fit: BoxFit.contain),
+                        if (controller != null &&
+                            controller.value.isInitialized)
+                          _CoverVideo(controller: controller),
+                      ],
+                    ),
+                  ),
                   const DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [
                           Color(0x26000000),
                           Colors.transparent,
-                          Color(0x52000000),
+                          Color(0x3D000000),
                         ],
-                        stops: [0, .48, 1],
+                        stops: [0, .55, 1],
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                       ),
                     ),
                   ),
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onTap: ready && widget.active ? _togglePlayback : null,
+                    ),
+                  ),
                   Positioned(
                     left: 16,
                     top: 16,
-                    child: _LiveBadge(animation: _breath),
+                    child: _LiveBadge(animation: _breath, playing: playing),
                   ),
                   if (!widget.fullscreen && widget.onFullscreen != null)
                     Positioned(
                       right: 12,
                       top: 12,
                       child: IconButton.filled(
-                        tooltip: '全屏预览',
+                        tooltip: context.l10n.text('fullscreenPreview'),
                         onPressed: widget.onFullscreen,
                         style: IconButton.styleFrom(
                           backgroundColor: Colors.black45,
@@ -291,52 +309,42 @@ class _LivePreviewCardState extends State<LivePreviewCard>
                         icon: const Icon(Icons.open_in_full_rounded, size: 18),
                       ),
                     ),
-                  Center(
-                    child: _PreviewButton(
-                      ready: ready && widget.active,
-                      playing: playing,
-                      loading: _initializing,
-                      failed: _previewError != null,
-                      onTap: _togglePlayback,
-                    ),
-                  ),
-                  Positioned(
-                    left: 18,
-                    right: 18,
-                    bottom: 14,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _previewError != null
-                              ? context.l10n.text('previewFailed')
-                              : _initializing
-                              ? context.l10n.text('previewLoading')
-                              : context.l10n.text('livingMoment'),
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: .76),
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: .5,
-                          ),
+                  IgnorePointer(
+                    ignoring:
+                        playing && !_initializing && _previewError == null,
+                    child: Center(
+                      child: AnimatedOpacity(
+                        duration: MediaQuery.disableAnimationsOf(context)
+                            ? Duration.zero
+                            : const Duration(milliseconds: 180),
+                        opacity: playing && !_initializing ? 0 : 1,
+                        child: _PreviewButton(
+                          ready: ready && widget.active,
+                          playing: playing,
+                          loading: _initializing,
+                          failed: _previewError != null,
+                          onTap: _togglePlayback,
                         ),
-                        if (controller != null &&
-                            controller.value.isInitialized) ...[
-                          const SizedBox(height: 7),
-                          VideoProgressIndicator(
-                            controller,
-                            allowScrubbing: true,
-                            padding: EdgeInsets.zero,
-                            colors: const VideoProgressColors(
-                              playedColor: AfterFrameColors.lime,
-                              bufferedColor: Colors.white30,
-                              backgroundColor: Colors.white12,
-                            ),
-                          ),
-                        ],
-                      ],
+                      ),
                     ),
                   ),
+                  if (_previewError != null || _initializing)
+                    Positioned(
+                      left: 18,
+                      right: 18,
+                      bottom: 16,
+                      child: Text(
+                        _previewError != null
+                            ? context.l10n.text('previewFailed')
+                            : context.l10n.text('previewLoading'),
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: .76),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: .5,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -380,36 +388,40 @@ class _PreviewButton extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => ClipOval(
-    child: BackdropFilter(
-      filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-      child: Material(
-        color: Colors.black.withValues(alpha: .34),
-        child: InkWell(
-          onTap: ready ? onTap : null,
-          child: Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white.withValues(alpha: .34)),
-            ),
-            child: loading
-                ? const Padding(
-                    padding: EdgeInsets.all(12),
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: context.l10n.text(playing ? 'pauseLive' : 'playLive'),
+    child: ClipOval(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+        child: Material(
+          color: Colors.black.withValues(alpha: .34),
+          child: InkWell(
+            onTap: ready ? onTap : null,
+            child: Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white.withValues(alpha: .34)),
+              ),
+              child: loading
+                  ? const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Icon(
+                      failed
+                          ? Icons.error_outline_rounded
+                          : playing
+                          ? Icons.pause_rounded
+                          : Icons.play_arrow_rounded,
+                      size: 23,
                     ),
-                  )
-                : Icon(
-                    failed
-                        ? Icons.error_outline_rounded
-                        : playing
-                        ? Icons.pause_rounded
-                        : Icons.play_arrow_rounded,
-                    size: 23,
-                  ),
+            ),
           ),
         ),
       ),
@@ -418,9 +430,10 @@ class _PreviewButton extends StatelessWidget {
 }
 
 class _LiveBadge extends StatelessWidget {
-  const _LiveBadge({required this.animation});
+  const _LiveBadge({required this.animation, required this.playing});
 
   final Animation<double> animation;
+  final bool playing;
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
@@ -436,11 +449,15 @@ class _LiveBadge extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
           decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: .38),
+            color: Colors.black.withValues(alpha: playing ? .52 : .38),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white.withValues(alpha: .2)),
+            border: Border.all(
+              color: playing
+                  ? AfterFrameColors.lime.withValues(alpha: .7)
+                  : Colors.white.withValues(alpha: .2),
+            ),
           ),
-          child: const Row(
+          child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
@@ -448,10 +465,10 @@ class _LiveBadge extends StatelessWidget {
                 size: 14,
                 color: AfterFrameColors.lime,
               ),
-              SizedBox(width: 6),
+              const SizedBox(width: 6),
               Text(
-                'AFTER LIVE',
-                style: TextStyle(
+                playing ? 'LIVE' : 'AFTER LIVE',
+                style: const TextStyle(
                   fontSize: 9,
                   fontWeight: FontWeight.w900,
                   letterSpacing: 1.1,

@@ -51,8 +51,11 @@ void main() {
       ),
     );
 
-    expect(find.text('COVER MOMENT'), findsOneWidget);
-    expect(find.text('MOMENT TIMELINE'), findsOneWidget);
+    expect(find.text('COVER MOMENT'), findsNothing);
+    expect(find.text('MOMENT TIMELINE'), findsNothing);
+    expect(find.text('Clips'), findsOneWidget);
+    expect(find.text('This clip’s cover'), findsOneWidget);
+    expect(find.text('Trim'), findsOneWidget);
     expect(find.text('More Settings'), findsOneWidget);
     expect(find.text('Layout'), findsNothing);
     expect(find.text('Style'), findsNothing);
@@ -87,7 +90,7 @@ void main() {
       ),
     );
 
-        expect(find.byTooltip('Remove this clip'), findsNWidgets(2));
+    expect(find.byTooltip('Remove this clip'), findsNWidgets(2));
     await tester.tap(find.byTooltip('Remove this clip').last);
     expect(removed, 1);
   });

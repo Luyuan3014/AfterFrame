@@ -14,11 +14,9 @@ import '../features/motion_canvas/export/export_service.dart';
 import '../features/motion_canvas/models/motion_clip.dart';
 import '../features/motion_canvas/widgets/studio_canvas.dart';
 import 'components/advanced_settings.dart';
-import 'components/cover_selector.dart';
-import 'components/generate_button.dart';
 import 'components/fullscreen_preview.dart';
+import 'components/live_moment_editor.dart';
 import 'components/live_preview_card.dart';
-import 'components/timeline_editor.dart';
 import 'formatters.dart';
 import 'live_editor_scope.dart';
 import 'models/live_editor_state.dart';
@@ -749,14 +747,6 @@ class _LiveEditorScaffoldState extends State<_LiveEditorScaffold> {
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(height: 20),
-                                  _Reveal(
-                                    child: GenerateButton(
-                                      onPressed: canGenerate
-                                          ? widget.onGenerate
-                                          : null,
-                                    ),
-                                  ),
                                 ],
                               ),
                             ),
@@ -772,8 +762,7 @@ class _LiveEditorScaffoldState extends State<_LiveEditorScaffold> {
   }
 }
 
-/// Single-frame tools follow the same order as the canvas ones: cover, then
-/// timeline, then shared settings.
+/// Single-frame tools: one strip for cover and Live range, then settings.
 class _SingleFrameTools extends StatelessWidget {
   const _SingleFrameTools({
     super.key,
@@ -788,9 +777,7 @@ class _SingleFrameTools extends StatelessWidget {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      const CoverSelector(),
-      const SizedBox(height: 30),
-      const TimelineEditor(),
+      const LiveMomentEditor(),
       if (remaining > 0) ...[
         const SizedBox(height: 18),
         _AddSourcesInvite(remaining: remaining, onAdd: onAddSources),

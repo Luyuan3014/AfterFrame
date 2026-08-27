@@ -30,10 +30,10 @@ abstract final class AfterFrameTheme {
       splashFactory: InkSparkle.splashFactory,
       textTheme: const TextTheme(
         displaySmall: TextStyle(
-          fontSize: 38,
-          fontWeight: FontWeight.w800,
-          height: 1.02,
-          letterSpacing: -1.8,
+          fontSize: 40,
+          fontWeight: FontWeight.w600,
+          height: 1.08,
+          letterSpacing: -1.4,
         ),
         headlineMedium: TextStyle(
           fontSize: 27,

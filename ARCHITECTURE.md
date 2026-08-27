@@ -41,12 +41,12 @@ AfterFrame 的核心是“视频片段 → Motion Photo/MP4”和最多三路视
 
 ```text
 Flutter
-├─ 首页统一创作入口与 1–3 段有序多选（视频与 Live 图可混选）
+├─ 创作页单一导入入口（能力说明不可点）与 1–3 段有序多选（视频与 Live 图可混选）
 ├─ 素材选择页按已选数量预告作品形态（真实 Adaptive Canvas 迷你版式）
 ├─ AfterFrame Studio
-│  ├─ Live 单帧状态、封面和时间轴
-│  └─ Motion Canvas 拼图控制器、渲染器和工具区
-├─ Studio 预览、素材增删和作品页面
+│  ├─ Live 单帧：一条封面与范围轴（LiveMomentEditor）
+│  └─ Motion Canvas：素材轨 + 当前段封面 / 裁剪
+├─ Studio 实况预览（播放放大、结束回封面）、素材增删和作品页面
 └─ 冻结导出参数
        │
        ▼
@@ -78,6 +78,17 @@ AfterFrame 没有“创作模式”这个概念。Studio 编辑的是一个**有
 - `LiveDefaults`：声音、循环、增强和变速的默认值对所有形态一致，因此改变素材数量不会静默改变播放语义。
 - 形态在素材选择页就已确定：底部条用真实 `AdaptiveCanvasPlan` 渲染迷你版式，并写明“将生成”的形态；Studio 顶栏只陈述形态，不提供切换控件。
 - 改变形态的方式是改变素材：拼图素材轨可移除一段（可撤销），也可以在未满 3 段时继续添加视频或 Live 图。删到 1 段时 Studio 自动回到单帧规则；加到 2 段及以上时自动进入 Adaptive Canvas。
+- 创作页不再并列第二套 Studio 入口。主卡片是唯一导入动作；视频 / Live 图 / 拼图只陈述能力，2～6 秒建议是旁注而不是可点卡片。
+
+## 创作页与 Studio 编辑层
+
+产品入口和编辑壳在 Flutter 侧，不改变 MethodChannel 或导出契约。
+
+- **创作页**（`HomeShell` 的 Discover）：品牌、标题和一张导入主卡片。点击进入素材库，再进入 Studio。不在首页再放一条指向同一流程的 Studio 列表项。
+- **Live 单帧工具**（`LiveMomentEditor`）：一条胶片同时承担封面针和 LIVE 范围。稍晚 / 中间 / 稍早是封面捷径；拖动封面针即为手动。禁止再叠第二条相同胶片、双 Tab（时间候选 / 手动选择）或只读的「最佳瞬间」徽章。
+- **Live 拼图工具**（`StudioCanvasTools`）：素材轨点选当前段、长按排序、＋ 添加、× 移除；当前段只保留封面滑杆和「裁剪」。裁剪仍走原有底部面板（独立区间、Smart Crop 重置）。禁止封面芯片与素材轨重复选择同一段。
+- **导出**：顶栏「导出」是唯一生成入口，处理中显示进度；底部不再放第二个生成按钮。失败仍用 SnackBar。
+- **实况预览**：`LivePlaybackScale` 在播放时把画面从 1.0 缓出到 1.08，停止时回到 1.0。单帧停止后 `seek` 到封面时刻；拼图暂停时各路仍停在各自封面。循环播放期间保持放大。编辑卡、`FullscreenPreview` 和作品 `MediaPreviewSheet` 共用同一套缩放。预览铬层（LIVE 徽章、全屏、播放键）画在缩放层之外，只让画面呼吸。
 
 ## Live 图导入
 
@@ -86,13 +97,13 @@ AfterFrame 没有“创作模式”这个概念。Studio 编辑的是一个**有
 - API 34 优先读取 `IS_MOTION_PHOTO`；否则用文件名启发式（`MVIMG_`、`_MP.jpg`、`PXL_*MP*` 等）并对最近 JPEG 探查 XMP。
 - `MotionPhotoSource` 按 Google Motion Photo 1.0 `Item:Length`、`GCamera:MicroVideoOffset` 抽取尾随 MP4；失败时若容器暴露视频轨，则用 `MediaExtractor`/`MediaMuxer` 复用到缓存文件。
 - 抽出的动态位于 `cacheDir/afterframe/motion_sources`，属于临时缓存，清理缓存后下次导入会重新抽取。
-- Flutter 侧 `MediaAsset.kind = motionPhoto`，`libraryUri`/`stillUri` 保持相册静态图身份，进入 Studio 前 `resolvePlayableSource` 把 `uri` 换成可播放文件。预览、时间轴、Media3 导出只消费可播放 URI；缩略图优先用静态主图。
+- Flutter 侧 `MediaAsset.kind = motionPhoto`，`libraryUri`/`stillUri` 保持相册静态图身份，进入 Studio 前 `resolvePlayableSource` 把 `uri` 换成可播放文件。预览、封面与范围轴、Media3 导出只消费可播放 URI；缩略图优先用静态主图。
 - iOS Live Photo 的成对 JPEG+MOV 不是当前 Android 媒体库契约；只有已经转成 Android Motion Photo / 动态照片的项目会出现在 Live 筛选中。
 
 ## 拼图规则
 
 - 首页不再暴露独立拼图入口，素材统一进入 AfterFrame Studio。
-- Studio 共享顶栏、导出反馈、预览卡片和玻璃面板视觉层；两种形态都遵循“预览 → 封面 → 时间轴 → 更多设置 → 生成”。拼图业务状态仍由独立 `MotionCanvasController` 管理，不与单帧时间轴状态混写；素材列表变化时通过 `LiveEditorState.syncSources` 和 `adoptSettings` 单向对齐。
+- Studio 共享顶栏、导出反馈、预览卡片和玻璃面板视觉层。单帧是「预览 → 封面与范围 → 更多设置」；拼图是「预览 → 素材轨与当前段封面 → 更多设置」。生成只走顶栏导出。拼图业务状态仍由独立 `MotionCanvasController` 管理，不与单帧封面/范围状态混写；素材列表变化时通过 `LiveEditorState.syncSources` 和 `adoptSettings` 单向对齐。
 - 拼图支持 2–3 路视频或 Live 图，每一路保留独立裁切区间和独立封面瞬间；公共时长取各段有效区间与素材时长的最短值，且不超过最短素材，防止某路提前结束后出现空帧。素材轨可继续添加直至上限。
 - “布局 / 风格 / 转场 / 音乐”不是当前产品能力，也不在 UI、控制器或导出协议中保留伪入口。声音、循环、增强和变速使用与 Live 单帧相同的设置语义；需要音频时只添加第一路主音轨序列。
 - Live 拼图采用 Canvas First。`MotionCanvasLayout` 的产物是 `AdaptiveCanvasPlan`：画布像素尺寸、按时间顺序排列的 Frame 像素矩形，以及每路素材在源空间中的 Smart Crop 窗口。同比例家族（最大/最小宽高比 ≤ 1.12）使用最小原生边作为等格，再把完整取景窗均匀缩放到格子里，避免 1080p Live 静图和 720p 视频叠出一大一小。不同比例仍按原生像素排列，允许细小居中留白，禁止拉伸。
@@ -100,10 +111,10 @@ AfterFrame 没有“创作模式”这个概念。Studio 编辑的是一个**有
 - 自动布局必须满足外边缘闭合：首行/首列贴画布起边，末行/末列贴画布终边；默认 Frame 间隔为 4 个输出像素，自动方案不得产生额外外围黑边。
 - 1:1 不变量对「格子等于源尺寸」的 Frame 仍然成立：`cropPixelWidth == framePixelWidth`。同比例等格时允许 `crop` 大于 Frame，由 Media3 `Crop` 之后的 `Presentation.createForWidthAndHeight(slot)` 把纹理缩放到格子，合成器仍校验纹理尺寸等于 Frame。若某个 Frame 大于源素材，系统等比例缩小整张画布及全部 Frame，绝不单独拉伸该素材。
 - Smart Crop 只改变源空间裁剪窗的 `left/top`。默认焦点采用可解释的构图安全区启发式（人像略偏上、其他居中），用户可在编辑画布拖动当前 Frame 微调并随时恢复默认焦点。人脸/显著性模型仍属于后续可替换的数据源，不影响现有几何协议。
-- Flutter 预览按源像素摆放视频，用 Smart Crop 窗口裁切，再把该窗口缩放到 Frame 格子；暂停时各路停在自己的封面时间，播放时从各自 trimStart 同步推进。沉浸预览复用同一 `AdaptiveCanvasPlan`。
+- Flutter 预览按源像素摆放视频，用 Smart Crop 窗口裁切，再把该窗口缩放到 Frame 格子；暂停时各路停在自己的封面时间，播放时从各自 trimStart 同步推进。整张画布在播放时做 Live 呼吸缩放。沉浸预览复用同一 `AdaptiveCanvasPlan`。
 - MethodChannel 冻结传递 `canvasWidth/canvasHeight`、整数 `collagePixelRects`、整数 `sourceCropPixelRects`、`collageSourceSizes` 和每段 `collageCoverMs`；归一化矩形仅作为旧协议兼容字段。Media3 对每路素材应用 `Crop`，同比例缩格时再 `Presentation` 到 Frame；`VideoCompositorSettings` 只设置输出画布和整数像素 Frame 中心。
 - 拼图完成后，`ExportService` 按各段独立封面从源素材抽帧并合成静图，再用于 Motion Photo 主图和作品索引；禁止只用第一路源素材封面，也禁止用单一成片时间点冒充所有格子的封面。
-- Live 单帧和 Live 拼图共用 `FullscreenPreview` 路由规范：280ms 淡入缩放、`immersiveSticky` 系统栏、右上角关闭、系统返回和向下拖拽退出；路由销毁时恢复 `edgeToEdge`，编辑页播放器在全屏期间暂停以避免双音轨。
+- Live 单帧和 Live 拼图共用 `FullscreenPreview` 路由规范：280ms 淡入缩放、`immersiveSticky` 系统栏、右上角关闭、系统返回和向下拖拽退出；路由销毁时恢复 `edgeToEdge`，编辑页播放器在全屏期间暂停以避免双音轨。全屏里的实况播放仍使用 `LivePlaybackScale`，与编辑卡一致。
 - 所有素材使用相同目标时长和变速，避免序列提前结束后出现空帧。
 - AI 主体识别和跨轨复杂转场明确延期。当前 Smart Crop 是确定性的构图安全区加用户微调，不宣称已经具备人脸或语义主体检测能力。
 
@@ -122,6 +133,7 @@ GIF 与 animated WebP 已移除。为非核心格式重新引入 FFmpeg 会恢�
 
 - Pixel、Samsung、小米等相册对 Motion Photo 的识别和播放
 - 从 Pixel / 三星 / 小米相册导入 Live 图后，预览与 Media3 导出是否使用抽出的动态而不是静态主图
+- 实况点按播放时画面是否轻微放大、结束后是否回到封面静帧（编辑预览、全屏、作品预览）
 - 高通、联发科等设备的多路 MediaCodec 导出稳定性与速度
 - HDR 到 SDR/保留 HDR 的色彩表现
 - 微信、抖音对 Motion Photo 原件与 MP4 fallback 的真实接收效果

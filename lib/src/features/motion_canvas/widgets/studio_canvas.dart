@@ -1,11 +1,11 @@
 import 'dart:ui';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 
 import '../../../live_editor/formatters.dart';
 import '../../../localization/app_localizations.dart';
 import '../../../theme.dart';
+import '../../../widgets/live_playback_scale.dart';
 import '../controllers/motion_canvas_controller.dart';
 import '../renderer/motion_canvas_renderer.dart';
 import 'clip_track.dart';
@@ -68,12 +68,15 @@ class StudioCanvasPreview extends StatelessWidget {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    MotionCanvasRenderer(
-                      controller: controller,
-                      showChrome: false,
-                      playbackEnabled: active,
-                      showPlaybackControl: false,
-                      interactive: !fullscreen,
+                    LivePlaybackScale(
+                      playing: controller.isPlaying,
+                      child: MotionCanvasRenderer(
+                        controller: controller,
+                        showChrome: false,
+                        playbackEnabled: active,
+                        showPlaybackControl: false,
+                        interactive: !fullscreen,
+                      ),
                     ),
                     const DecoratedBox(
                       decoration: BoxDecoration(
@@ -81,9 +84,9 @@ class StudioCanvasPreview extends StatelessWidget {
                           colors: [
                             Color(0x26000000),
                             Colors.transparent,
-                            Color(0x52000000),
+                            Color(0x3D000000),
                           ],
-                          stops: [0, .48, 1],
+                          stops: [0, .55, 1],
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
                         ),
@@ -92,39 +95,9 @@ class StudioCanvasPreview extends StatelessWidget {
                     Positioned(
                       left: 16,
                       top: 16,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(99),
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 7,
-                            ),
-                            color: Colors.black.withValues(alpha: .42),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(
-                                  Icons.motion_photos_on_rounded,
-                                  size: 14,
-                                  color: AfterFrameColors.lime,
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  context.l10n.text('canvasPreviewBadge', {
-                                    'count': controller.clips.length,
-                                  }),
-                                  style: const TextStyle(
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: 1.1,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
+                      child: _CanvasLiveBadge(
+                        count: controller.clips.length,
+                        playing: controller.isPlaying,
                       ),
                     ),
                     if (!fullscreen && onFullscreen != null)
@@ -132,7 +105,7 @@ class StudioCanvasPreview extends StatelessWidget {
                         right: 12,
                         top: 12,
                         child: IconButton.filled(
-                          tooltip: '全屏预览',
+                          tooltip: context.l10n.text('fullscreenPreview'),
                           onPressed: onFullscreen,
                           style: IconButton.styleFrom(
                             backgroundColor: Colors.black45,
@@ -145,10 +118,12 @@ class StudioCanvasPreview extends StatelessWidget {
                         ),
                       ),
                     Positioned(
-                      left: 18,
-                      right: 18,
+                      left: 14,
                       bottom: 14,
-                      child: _CanvasTimeline(controller: controller),
+                      child: _CanvasPlayButton(
+                        playing: controller.isPlaying,
+                        onTap: controller.togglePlayback,
+                      ),
                     ),
                   ],
                 ),
@@ -161,8 +136,7 @@ class StudioCanvasPreview extends StatelessWidget {
   );
 }
 
-/// Multi-source editing, presented with the same cover, timeline,
-/// advanced-settings, and generate order as a single-frame Live.
+/// Multi-source editing: source rail, this clip's cover, then shared settings.
 class StudioCanvasTools extends StatelessWidget {
   const StudioCanvasTools({
     super.key,
@@ -180,277 +154,83 @@ class StudioCanvasTools extends StatelessWidget {
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: controller,
-    builder: (context, _) => Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _CanvasCoverSelector(controller: controller),
-        const SizedBox(height: 30),
-        _CanvasClipTimeline(
-          controller: controller,
-          onEditClip: onEditClip,
-          onRemoveClip: onRemoveClip,
-          onAddClip: onAddClip,
-        ),
-        const SizedBox(height: 24),
-        _CanvasAdvancedSettings(controller: controller),
-      ],
-    ),
-  );
-}
-
-class _CanvasCoverSelector extends StatelessWidget {
-  const _CanvasCoverSelector({required this.controller});
-  final MotionCanvasController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final clip = controller.activeClip;
-    final minMs = clip.trimStartMs.toDouble();
-    final maxMs = clip.trimEndMs.toDouble().clamp(minMs + 1, double.infinity);
-    final coverMs = clip.resolvedCoverMs.toDouble().clamp(minMs, maxMs);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    context.l10n.text('coverMoment'),
-                    style: const TextStyle(
-                      color: AfterFrameColors.lime,
-                      fontSize: 9,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1.6,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    context.l10n.text('chooseCover'),
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Text(
-              formatEditorTime(clip.resolvedCoverMs),
-              style: const TextStyle(
-                color: AfterFrameColors.lime,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                fontFeatures: [FontFeature.tabularFigures()],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (var index = 0; index < controller.clips.length; index++)
-              _CoverClipChip(
-                label: context.l10n.text('coverClipLabel', {
-                  'index': index + 1,
-                }),
-                selected: index == controller.activeClipIndex,
-                live: controller.clips[index].asset.isMotionPhoto,
-                onTap: () => controller.selectClip(index),
-              ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Text(
-          context.l10n.text('chooseCoverHint'),
-          style: const TextStyle(
-            fontSize: 11,
-            height: 1.4,
-            color: AfterFrameColors.muted,
+    builder: (context, _) {
+      final clip = controller.activeClip;
+      final minMs = clip.trimStartMs.toDouble();
+      final maxMs = clip.trimEndMs
+          .toDouble()
+          .clamp(minMs + 1, double.infinity)
+          .toDouble();
+      final coverMs = clip.resolvedCoverMs
+          .toDouble()
+          .clamp(minMs, maxMs)
+          .toDouble();
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            context.l10n.text('sourcesTitle'),
+            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
           ),
-        ),
-        const SizedBox(height: 13),
-        Container(
-          height: 72,
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: .22),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AfterFrameColors.glassBorder),
+          const SizedBox(height: 12),
+          MotionClipTrack(
+            controller: controller,
+            onRemove: onRemoveClip,
+            onAdd: onAddClip,
           ),
-          clipBehavior: Clip.antiAlias,
-          child: Stack(
-            fit: StackFit.expand,
+          const SizedBox(height: 22),
+          Row(
             children: [
-              clip.thumbnailPath == null
-                  ? const ColoredBox(color: Color(0xFF202126))
-                  : Image.file(
-                      File(clip.thumbnailPath!),
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) =>
-                          const ColoredBox(color: Color(0xFF202126)),
-                    ),
-              ColoredBox(color: Colors.black.withValues(alpha: .18)),
-              SliderTheme(
-                data: SliderTheme.of(context).copyWith(
-                  trackHeight: 0,
-                  thumbShape: const RoundSliderThumbShape(
-                    enabledThumbRadius: 9,
-                  ),
-                  overlayShape: const RoundSliderOverlayShape(
-                    overlayRadius: 18,
-                  ),
-                  thumbColor: AfterFrameColors.lime,
-                  overlayColor: AfterFrameColors.lime.withValues(alpha: .14),
-                ),
-                child: Slider(
-                  min: minMs,
-                  max: maxMs,
-                  value: coverMs,
-                  onChanged: (value) => controller.setClipCover(
-                    controller.activeClipIndex,
-                    value.round(),
+              Expanded(
+                child: Text(
+                  context.l10n.text('clipCover'),
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
+              ),
+              Text(
+                formatEditorTime(clip.resolvedCoverMs),
+                style: const TextStyle(
+                  color: AfterFrameColors.lime,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: () => onEditClip(controller.activeClipIndex),
+                child: Text(context.l10n.text('trimClip')),
               ),
             ],
           ),
-        ),
-      ],
-    );
-  }
-}
-
-class _CoverClipChip extends StatelessWidget {
-  const _CoverClipChip({
-    required this.label,
-    required this.selected,
-    required this.live,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final bool live;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: AnimatedContainer(
-      duration: MotionCanvasController.motion,
-      curve: MotionCanvasController.curve,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: selected
-            ? AfterFrameColors.lime.withValues(alpha: .16)
-            : Colors.white.withValues(alpha: .05),
-        borderRadius: BorderRadius.circular(99),
-        border: Border.all(
-          color: selected
-              ? AfterFrameColors.lime.withValues(alpha: .7)
-              : Colors.white12,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              color: selected ? AfterFrameColors.lime : Colors.white70,
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              activeTrackColor: AfterFrameColors.lime.withValues(alpha: .78),
+              inactiveTrackColor: Colors.white12,
+              trackHeight: 3,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+              thumbColor: AfterFrameColors.lime,
+              overlayColor: AfterFrameColors.lime.withValues(alpha: .12),
             ),
-          ),
-          if (live) ...[
-            const SizedBox(width: 6),
-            Text(
-              context.l10n.text('liveBadge'),
-              style: TextStyle(
-                fontSize: 8,
-                fontWeight: FontWeight.w900,
-                letterSpacing: .4,
-                color: selected
-                    ? AfterFrameColors.lime
-                    : AfterFrameColors.muted,
+            child: Slider(
+              min: minMs,
+              max: maxMs,
+              value: coverMs,
+              onChanged: (value) => controller.setClipCover(
+                controller.activeClipIndex,
+                value.round(),
               ),
             ),
-          ],
-        ],
-      ),
-    ),
-  );
-}
-
-class _CanvasClipTimeline extends StatelessWidget {
-  const _CanvasClipTimeline({
-    required this.controller,
-    required this.onEditClip,
-    required this.onRemoveClip,
-    this.onAddClip,
-  });
-  final MotionCanvasController controller;
-  final ValueChanged<int> onEditClip;
-  final ValueChanged<int> onRemoveClip;
-  final VoidCallback? onAddClip;
-
-  @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        context.l10n.text('momentTimeline'),
-        style: const TextStyle(
-          color: AfterFrameColors.lime,
-          fontSize: 9,
-          fontWeight: FontWeight.w900,
-          letterSpacing: 1.6,
-        ),
-      ),
-      const SizedBox(height: 4),
-      Text(
-        context.l10n.text('findMoment'),
-        style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
-      ),
-      const SizedBox(height: 11),
-      Row(
-        children: [
-          Expanded(
-            child: _Metric(
-              label: context.l10n.text('currentTime'),
-              value: formatEditorTime(controller.positionMs),
-            ),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _Metric(
-              label: context.l10n.text('liveLength'),
-              value: formatEditorTime(controller.durationMs),
-            ),
-          ),
+          const SizedBox(height: 8),
+          _CanvasAdvancedSettings(controller: controller),
         ],
-      ),
-      const SizedBox(height: 12),
-      MotionClipTrack(
-        controller: controller,
-        onEdit: onEditClip,
-        onRemove: onRemoveClip,
-        onAdd: onAddClip,
-      ),
-      const SizedBox(height: 7),
-      Text(
-        context.l10n.text('canvasTrackHint'),
-        style: const TextStyle(
-          fontSize: 10,
-          height: 1.4,
-          color: AfterFrameColors.muted,
-        ),
-      ),
-    ],
+      );
+    },
   );
 }
 
@@ -537,43 +317,6 @@ class _CanvasAdvancedSettings extends StatelessWidget {
           ),
         ],
       ),
-    ),
-  );
-}
-
-class _Metric extends StatelessWidget {
-  const _Metric({required this.label, required this.value});
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-    decoration: BoxDecoration(
-      color: Colors.black.withValues(alpha: .18),
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: AfterFrameColors.glassBorder),
-    ),
-    child: Row(
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 8,
-            color: AfterFrameColors.muted,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const Spacer(),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w800,
-            fontFeatures: [FontFeature.tabularFigures()],
-          ),
-        ),
-      ],
     ),
   );
 }
@@ -665,43 +408,72 @@ class _SpeedOption extends StatelessWidget {
   );
 }
 
-class _CanvasTimeline extends StatelessWidget {
-  const _CanvasTimeline({required this.controller});
-  final MotionCanvasController controller;
+class _CanvasLiveBadge extends StatelessWidget {
+  const _CanvasLiveBadge({required this.count, required this.playing});
+
+  final int count;
+  final bool playing;
 
   @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      IconButton.filledTonal(
-        visualDensity: VisualDensity.compact,
-        onPressed: controller.togglePlayback,
-        icon: Icon(
-          controller.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-        ),
-      ),
-      Expanded(
-        child: SliderTheme(
-          data: SliderTheme.of(context).copyWith(
-            trackHeight: 2,
-            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
-            activeTrackColor: AfterFrameColors.lime,
-            inactiveTrackColor: Colors.white24,
-            thumbColor: AfterFrameColors.lime,
+  Widget build(BuildContext context) => ClipRRect(
+    borderRadius: BorderRadius.circular(99),
+    child: BackdropFilter(
+      filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: playing ? .52 : .42),
+          border: Border.all(
+            color: playing
+                ? AfterFrameColors.lime.withValues(alpha: .7)
+                : Colors.transparent,
           ),
-          child: Slider(
-            value: controller.positionMs.toDouble(),
-            max: controller.durationMs.toDouble(),
-            onChanged: (value) => controller.setPosition(value.round()),
-          ),
+          borderRadius: BorderRadius.circular(99),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.motion_photos_on_rounded,
+              size: 14,
+              color: AfterFrameColors.lime,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              playing
+                  ? 'LIVE'
+                  : context.l10n.text('canvasPreviewBadge', {'count': count}),
+              style: const TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.1,
+              ),
+            ),
+          ],
         ),
       ),
-      Text(
-        '${(controller.positionMs / 1000).toStringAsFixed(1)}s',
-        style: const TextStyle(
-          fontSize: 10,
-          fontFeatures: [FontFeature.tabularFigures()],
-        ),
+    ),
+  );
+}
+
+class _CanvasPlayButton extends StatelessWidget {
+  const _CanvasPlayButton({required this.playing, required this.onTap});
+
+  final bool playing;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: context.l10n.text(playing ? 'pauseLive' : 'playLive'),
+    child: IconButton.filledTonal(
+      tooltip: context.l10n.text(playing ? 'pauseLive' : 'playLive'),
+      onPressed: onTap,
+      style: IconButton.styleFrom(
+        backgroundColor: Colors.black.withValues(alpha: .46),
+        foregroundColor: Colors.white,
       ),
-    ],
+      icon: Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded),
+    ),
   );
 }
