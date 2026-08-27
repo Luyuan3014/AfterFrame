@@ -70,9 +70,11 @@ class ExportService(
     private fun packageAndPublish(call: MethodCall, mp4: File, work: File): Map<String, String> {
         val format = call.argument<String>("format") ?: "motionPhoto"
         require(format in setOf("motionPhoto", "mp4")) { "Media3 仅支持 Motion Photo 或 MP4 导出" }
-        val requestedCover = File(call.argument<String>("coverPath")!!)
-        val isCollage = call.argument<List<String>>("collageUris").orEmpty().size > 1
-        val cover = if (isCollage) extractRenderedCover(call, mp4, work) else requestedCover
+        // Extract the still from the tone-mapped render so the cover always
+        // matches the video's colours. A MediaMetadataRetriever frame taken
+        // straight from an HDR source is not tone-mapped to SDR and shifts
+        // toward red/blue once it is written back as a plain JPEG.
+        val cover = extractRenderedCover(call, mp4, work)
         require(cover.isFile && cover.length() > 0L) { "导出封面不存在" }
         val safeName = (call.argument<String>("name") ?: "memory")
             .substringBeforeLast('.')
@@ -109,17 +111,17 @@ class ExportService(
         val speed = (call.argument<Number>("playbackSpeed")?.toDouble() ?: 1.0).coerceIn(.5, 2.0)
         val presentationUs =
             ((coverMs - startMs).coerceIn(0, endMs - startMs) / speed * 1_000).toLong()
-        val output = File(work, "canvas-cover.jpg")
+        val output = File(work, "rendered-cover.jpg")
         val retriever = MediaMetadataRetriever()
         try {
             retriever.setDataSource(mp4.absolutePath)
             val frame = requireNotNull(
                 retriever.getFrameAtTime(presentationUs, MediaMetadataRetriever.OPTION_CLOSEST),
-            ) { "无法从 Canvas First 成片提取封面" }
+            ) { "无法从成片提取封面" }
             try {
                 FileOutputStream(output).use { stream ->
                     check(frame.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, stream)) {
-                        "无法编码 Canvas First 封面"
+                        "无法编码成片封面"
                     }
                 }
             } finally {
@@ -128,7 +130,7 @@ class ExportService(
         } finally {
             retriever.release()
         }
-        check(output.isFile && output.length() > 0L) { "Canvas First 封面为空" }
+        check(output.isFile && output.length() > 0L) { "成片封面为空" }
         return output
     }
 

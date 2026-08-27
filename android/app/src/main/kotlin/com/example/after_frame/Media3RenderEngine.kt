@@ -3,7 +3,9 @@ package com.example.after_frame
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.media.MediaCodecInfo
 import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -18,18 +20,20 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.BitmapOverlay
 import androidx.media3.effect.Crop
 import androidx.media3.effect.GaussianBlur
-import androidx.media3.effect.HslAdjustment
 import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.Presentation
 import androidx.media3.effect.RgbAdjustment
+import androidx.media3.effect.RgbMatrix
 import androidx.media3.effect.StaticOverlaySettings
 import androidx.media3.transformer.Composition
+import androidx.media3.transformer.DefaultEncoderFactory
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.Transformer
+import androidx.media3.transformer.VideoEncoderSettings
 import io.flutter.plugin.common.MethodCall
 import java.io.File
 import java.nio.ByteBuffer
@@ -154,6 +158,7 @@ class Media3RenderEngine(
                 val transformer = Transformer.Builder(context)
                     .setVideoMimeType(MimeTypes.VIDEO_H264)
                     .setAudioMimeType(MimeTypes.AUDIO_AAC)
+                    .setEncoderFactory(encoderFactory(request))
                     .experimentalSetTrimOptimizationEnabled(request.canOptimizeTrim)
                     .addListener(
                         object : Transformer.Listener {
@@ -219,7 +224,9 @@ class Media3RenderEngine(
             } else {
                 EditedMediaItemSequence.withVideoFrom(listOf(item))
             }
-            return Composition.Builder(sequence).build()
+            return Composition.Builder(sequence)
+                .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
+                .build()
         }
 
         val slots = request.slots.ifEmpty {
@@ -265,6 +272,7 @@ class Media3RenderEngine(
             .setVideoCompositorSettings(
                 CollageCompositor(slots, request.canvasWidth, request.canvasHeight),
             )
+            .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
         // Media3 alpha-blends every video quad and pairs secondary frames by
         // nearest primary timestamp. Abutting content seams therefore shimmer.
         // Paint opaque static bars into the planned gutters after compose so
@@ -381,13 +389,16 @@ class Media3RenderEngine(
             builder.setSpeed(ConstantSpeedProvider(request.speed))
         }
         if (!removeVideo) {
-            builder.setEffects(Effects(emptyList(), videoEffects(request, slot, crop, source.baked)))
+            builder.setEffects(
+                Effects(emptyList(), videoEffects(request, source, slot, crop, source.baked)),
+            )
         }
         return builder.build()
     }
 
     private fun videoEffects(
         request: RenderRequest,
+        source: Source,
         slot: Slot?,
         crop: CropWindow?,
         baked: Boolean,
@@ -408,13 +419,13 @@ class Media3RenderEngine(
                 Presentation.LAYOUT_SCALE_TO_FIT,
             )
         } else {
-            effects += Presentation.createForShortSide(1080)
+            // A single source keeps its native resolution. Rescaling to a fixed
+            // short side upsamples 720p into blur and throws away detail on
+            // anything above 1080p, so only clamp what the encoder cannot take.
+            downscaleToLimit(source)?.let { effects += it }
         }
         if (request.enhancement && !baked) {
-            effects += HslAdjustment.Builder()
-                .adjustSaturation(8f)
-                .adjustLightness(2f)
-                .build()
+            effects += Saturation(ENHANCEMENT_SATURATION)
         }
         when (request.transition) {
             2 -> effects += RgbAdjustment.Builder()
@@ -427,6 +438,12 @@ class Media3RenderEngine(
         return effects
     }
 
+    private fun downscaleToLimit(source: Source): Effect? {
+        val shortSide = min(source.width, source.height)
+        if (shortSide <= 0 || shortSide <= MAX_SHORT_SIDE) return null
+        return Presentation.createForShortSide(MAX_SHORT_SIDE)
+    }
+
     /**
      * Live photos arrive as `file://` cache MP4s. Probing them through
      * ContentResolver on the main thread can hang, so duration and audio are
@@ -436,10 +453,78 @@ class Media3RenderEngine(
         val sources = request.sources.map { source ->
             val durationMs = mediaDurationMs(source.uri)
             val window = MediaClipWindows.clamp(source.startMs, source.endMs, durationMs)
-            source.copy(startMs = window[0], endMs = window[1])
+            val size = videoSize(source.uri)
+            source.copy(
+                startMs = window[0],
+                endMs = window[1],
+                width = size.width,
+                height = size.height,
+            )
         }
         val audioAvailable = sources.map { hasUsableAudio(it.uri) }
         return request.copy(sources = sources, audioAvailable = audioAvailable)
+    }
+
+    /** Decoded frame size after the container's rotation metadata is applied. */
+    private fun videoSize(uri: Uri): Size {
+        val extractor = MediaExtractor()
+        return try {
+            openExtractor(extractor, uri)
+            for (index in 0 until extractor.trackCount) {
+                val format = extractor.getTrackFormat(index)
+                val mime = format.getString(android.media.MediaFormat.KEY_MIME) ?: continue
+                if (!mime.startsWith("video/")) continue
+                val width = format.integerOrZero(android.media.MediaFormat.KEY_WIDTH)
+                val height = format.integerOrZero(android.media.MediaFormat.KEY_HEIGHT)
+                val rotation = format.integerOrZero("rotation-degrees")
+                return if (rotation == 90 || rotation == 270) {
+                    Size(height, width)
+                } else {
+                    Size(width, height)
+                }
+            }
+            Size(0, 0)
+        } catch (_: Exception) {
+            Size(0, 0)
+        } finally {
+            extractor.release()
+        }
+    }
+
+    /**
+     * Media3's default is `pixels * frameRate * 0.14`, which leaves large soft
+     * gradients — fog, overcast sky, bokeh — with visible banding and blocky
+     * chroma. A Live is at most six seconds, so paying for a much higher
+     * ceiling costs a few megabytes and removes the artefacts entirely.
+     */
+    private fun encoderFactory(request: RenderRequest): DefaultEncoderFactory {
+        val pixels = outputPixels(request).toLong()
+        val bitrate = (pixels * OUTPUT_FRAME_RATE * BITRATE_PER_PIXEL)
+            .toLong()
+            .coerceIn(MIN_BITRATE, MAX_BITRATE)
+            .toInt()
+        return DefaultEncoderFactory.Builder(context)
+            .setRequestedVideoEncoderSettings(
+                VideoEncoderSettings.Builder()
+                    .setBitrate(bitrate)
+                    .setBitrateMode(MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
+                    .build(),
+            )
+            .build()
+    }
+
+    private fun outputPixels(request: RenderRequest): Int {
+        if (request.slots.isNotEmpty() || request.sources.size > 1) {
+            return request.canvasWidth * request.canvasHeight
+        }
+        val source = request.sources.first()
+        if (source.width <= 0 || source.height <= 0) {
+            return request.canvasWidth * request.canvasHeight
+        }
+        val shortSide = min(source.width, source.height)
+        if (shortSide <= MAX_SHORT_SIDE) return source.width * source.height
+        val scale = MAX_SHORT_SIDE.toDouble() / shortSide
+        return ((source.width * scale) * (source.height * scale)).roundToInt()
     }
 
     private fun playableMediaUri(uri: Uri): Uri {
@@ -535,11 +620,54 @@ class Media3RenderEngine(
         }
     }
 
+    /**
+     * Scales chroma around the BT.709 luma axis, leaving neutral pixels exactly
+     * where they were.
+     *
+     * Media3's [androidx.media3.effect.HslAdjustment] saturation is an absolute
+     * offset added to HSL's S channel, not a gain. On an overcast or foggy
+     * frame — where S sits near 0.04 — a +0.08 offset triples the chroma and
+     * amplifies the decoder's invisible ±1 Cb/Cr dither into visible red and
+     * blue blotches. A gain matrix cannot do that: grey stays grey no matter
+     * how strong the factor is.
+     */
+    private class Saturation(private val gain: Float) : RgbMatrix {
+        override fun getMatrix(presentationTimeUs: Long, useHdr: Boolean): FloatArray {
+            // Effects run on linear RGB (BT.709 for SDR, BT.2020 for HDR), so
+            // the matching linear luma weights keep the luminance untouched.
+            val (lr, lg, lb) = if (useHdr) BT2020_LUMA else BT709_LUMA
+            val rest = 1f - gain
+            // Column-major 4x4, matching android.opengl.Matrix and GLSL mat4.
+            //
+            // outR = (gain + rest*lr)*R + rest*lg*G + rest*lb*B
+            // outG = rest*lr*R + (gain + rest*lg)*G + rest*lb*B
+            // outB = rest*lr*R + rest*lg*G + (gain + rest*lb)*B
+            //
+            // A neutral pixel (R == G == B) therefore stays exactly where it
+            // was because lr + lg + lb == 1: no red/blue cast on grey areas.
+            return floatArrayOf(
+                gain + rest * lr, rest * lr, rest * lr, 0f,
+                rest * lg, gain + rest * lg, rest * lg, 0f,
+                rest * lb, rest * lb, gain + rest * lb, 0f,
+                0f, 0f, 0f, 1f,
+            )
+        }
+
+        override fun isNoOp(inputWidth: Int, inputHeight: Int): Boolean = gain == 1f
+
+        private companion object {
+            val BT709_LUMA = Triple(.2126f, .7152f, .0722f)
+            val BT2020_LUMA = Triple(.2627f, .6780f, .0593f)
+        }
+    }
+
     private data class Source(
         val uri: Uri,
         val startMs: Long,
         val endMs: Long,
         val baked: Boolean = false,
+        val width: Int = 0,
+        val height: Int = 0,
     )
 
     private data class Slot(
@@ -790,3 +918,14 @@ class Media3RenderEngine(
         return List(count) { index -> if (index == count - 1) total - base * index else base }
     }
 }
+
+private const val MAX_SHORT_SIDE = 2160
+private const val OUTPUT_FRAME_RATE = 30
+private const val BITRATE_PER_PIXEL = 0.25f
+private const val MIN_BITRATE = 6_000_000L
+private const val MAX_BITRATE = 50_000_000L
+private const val ENHANCEMENT_SATURATION = 1.2f
+
+/** MediaFormat.getInteger(key) throws when the key is absent, unlike the API-29 default overload. */
+private fun MediaFormat.integerOrZero(key: String): Int =
+    runCatching { getInteger(key) }.getOrDefault(0)
