@@ -139,6 +139,7 @@ class AppLocalizations {
       'profileTitle': '我的',
       'localWorkspaceTitle': 'AfterFrame 本地工作区',
       'localWorkspaceDetail': '无需账号 · 素材与创作数据留在本机',
+      'onDeviceBadge': '本机',
       'preferences': '偏好设置',
       'worksAndExport': '作品与导出',
       'storageAndPrivacy': '存储与隐私',
@@ -335,6 +336,7 @@ class AppLocalizations {
       'localWorkspaceTitle': 'AfterFrame Local Workspace',
       'localWorkspaceDetail':
           'No account · media and creative data stay on this device',
+      'onDeviceBadge': 'On device',
       'preferences': 'Preferences',
       'worksAndExport': 'Works & Export',
       'storageAndPrivacy': 'Storage & Privacy',

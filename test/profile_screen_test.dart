@@ -1,4 +1,5 @@
 import 'package:after_frame/src/app.dart';
+import 'package:after_frame/src/widgets/after_frame_sheet.dart';
 import 'package:flutter/material.dart' show Scrollable, SegmentedButton;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -78,11 +79,8 @@ void main() {
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(
-      find.text('作品相册'),
-      -260,
-      scrollable: find.byType(Scrollable).last,
-    );
+    await tester.ensureVisible(find.text('作品相册'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('作品相册'));
     await tester.pumpAndSettle();
     expect(find.text('我的作品'), findsOneWidget);
@@ -144,5 +142,29 @@ void main() {
       calls.where((call) => call.method == 'setAppLanguage'),
       hasLength(1),
     );
+  });
+
+  testWidgets('about uses the unified sheet and celebrates on open', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const AfterFrameApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('我的').last);
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.text('关于 AfterFrame'),
+      260,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(find.text('关于 AfterFrame'));
+    await tester.pump();
+
+    expect(find.byType(AfterFrameSheet), findsOneWidget);
+    expect(find.byType(AfterFrameConfetti), findsOneWidget);
+    expect(find.text('1.0.0 · arm64-v8a'), findsOneWidget);
+    expect(find.textContaining('不会上传媒体库内容'), findsOneWidget);
+
+    await tester.pumpAndSettle();
   });
 }

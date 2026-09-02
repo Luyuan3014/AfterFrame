@@ -10,7 +10,9 @@ import '../live_editor/live_editor_page.dart';
 import '../localization/app_localizations.dart';
 import '../widgets/media_preview_sheet.dart';
 import '../widgets/app_update_card.dart';
+import '../widgets/after_frame_sheet.dart';
 import 'home/create_page.dart';
+import 'home/memory_glow_background.dart';
 import 'video_picker_screen.dart';
 
 class HomeShell extends StatefulWidget {
@@ -303,7 +305,9 @@ class _Works extends StatelessWidget {
                       final deleting = deletingExports.contains(item.path);
                       return Material(
                         color: AfterFrameColors.panelSoft,
-                        borderRadius: BorderRadius.circular(AfterFrameRadius.lg),
+                        borderRadius: BorderRadius.circular(
+                          AfterFrameRadius.lg,
+                        ),
                         clipBehavior: Clip.antiAlias,
                         child: InkWell(
                           onTap: deleting ? null : () => onPreview(item),
@@ -519,21 +523,39 @@ class _ProfileState extends State<_Profile> {
 
   Future<void> _clearCache() async {
     if (_cacheBusy || (_cacheBytes ?? 0) == 0) return;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAfterFrameSheet<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(dialogContext.l10n.text('clearCacheTitle')),
-        content: Text(dialogContext.l10n.text('clearCacheDetail')),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: Text(dialogContext.l10n.text('cancel')),
+      builder: (sheetContext) => AfterFrameSheet(
+        icon: Icons.cleaning_services_rounded,
+        title: sheetContext.l10n.text('clearCacheTitle'),
+        accent: AfterFrameColors.coral,
+        footer: Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => Navigator.pop(sheetContext, false),
+                child: Text(sheetContext.l10n.text('cancel')),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: AfterFrameColors.coral,
+                ),
+                onPressed: () => Navigator.pop(sheetContext, true),
+                child: Text(sheetContext.l10n.text('clear')),
+              ),
+            ),
+          ],
+        ),
+        child: Text(
+          sheetContext.l10n.text('clearCacheDetail'),
+          style: const TextStyle(
+            color: AfterFrameColors.textSecondary,
+            height: 1.58,
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text(dialogContext.l10n.text('clear')),
-          ),
-        ],
+        ),
       ),
     );
     if (confirmed != true || !mounted) return;
@@ -566,52 +588,30 @@ class _ProfileState extends State<_Profile> {
   }
 
   Future<void> _showLanguagePicker(AppLanguageController controller) =>
-      showModalBottomSheet<void>(
+      showAfterFrameSheet<void>(
         context: context,
-        showDragHandle: true,
-        builder: (sheetContext) => SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 18),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-                  child: Text(
-                    sheetContext.l10n.text('appLanguage'),
-                    style: Theme.of(sheetContext).textTheme.titleLarge,
+        builder: (sheetContext) => AfterFrameSheet(
+          icon: Icons.language_rounded,
+          title: sheetContext.l10n.text('appLanguage'),
+          subtitle: sheetContext.l10n.text('languageHint'),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final value in AppLanguage.values)
+                AfterFrameSheetOption(
+                  icon: value == AppLanguage.chinese
+                      ? Icons.translate_rounded
+                      : Icons.language_rounded,
+                  label: sheetContext.l10n.text(
+                    value == AppLanguage.chinese ? 'chinese' : 'english',
                   ),
+                  selected: controller.language == value,
+                  onTap: () async {
+                    await controller.setLanguage(value);
+                    if (sheetContext.mounted) Navigator.pop(sheetContext);
+                  },
                 ),
-                for (final value in AppLanguage.values)
-                  ListTile(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    leading: Icon(
-                      value == AppLanguage.chinese
-                          ? Icons.translate_rounded
-                          : Icons.language_rounded,
-                    ),
-                    title: Text(
-                      sheetContext.l10n.text(
-                        value == AppLanguage.chinese ? 'chinese' : 'english',
-                      ),
-                    ),
-                    trailing: controller.language == value
-                        ? const Icon(
-                            Icons.check_circle_rounded,
-                            color: AfterFrameColors.lime,
-                          )
-                        : null,
-                    selected: controller.language == value,
-                    onTap: () async {
-                      await controller.setLanguage(value);
-                      if (sheetContext.mounted) Navigator.pop(sheetContext);
-                    },
-                  ),
-              ],
-            ),
+            ],
           ),
         ),
       );
@@ -627,32 +627,16 @@ class _ProfileState extends State<_Profile> {
     required String titleKey,
     required String bodyKey,
     IconData icon = Icons.info_outline_rounded,
-  }) => showModalBottomSheet<void>(
+  }) => showAfterFrameSheet<void>(
     context: context,
-    showDragHandle: true,
-    isScrollControlled: true,
-    builder: (sheetContext) => SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 4, 24, 28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, size: 30, color: AfterFrameColors.lime),
-            const SizedBox(height: 14),
-            Text(
-              sheetContext.l10n.text(titleKey),
-              style: Theme.of(sheetContext).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              sheetContext.l10n.text(bodyKey),
-              style: const TextStyle(
-                color: AfterFrameColors.muted,
-                height: 1.55,
-              ),
-            ),
-          ],
+    builder: (sheetContext) => AfterFrameSheet(
+      icon: icon,
+      title: sheetContext.l10n.text(titleKey),
+      child: Text(
+        sheetContext.l10n.text(bodyKey),
+        style: const TextStyle(
+          color: AfterFrameColors.textSecondary,
+          height: 1.58,
         ),
       ),
     ),
@@ -669,21 +653,92 @@ class _ProfileState extends State<_Profile> {
       // The about page remains useful if native package metadata is unavailable.
     }
     if (!mounted) return;
-    showAboutDialog(
+    await showAfterFrameSheet<void>(
       context: context,
-      applicationName: 'AfterFrame · ${context.l10n.text('brandCn')}',
-      applicationVersion: version.isEmpty
-          ? context.l10n.text('versionUnavailable')
-          : '$version${abi.isEmpty ? '' : ' · $abi'}',
-      applicationIcon: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: Image.asset('assets/branding/logo.png', width: 56, height: 56),
+      builder: (sheetContext) => Stack(
+        children: [
+          AfterFrameSheet(
+            icon: Icons.auto_awesome_rounded,
+            title: 'AfterFrame · ${sheetContext.l10n.text('brandCn')}',
+            subtitle: version.isEmpty
+                ? sheetContext.l10n.text('versionUnavailable')
+                : '$version${abi.isEmpty ? '' : ' · $abi'}',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(25),
+                      border: Border.all(
+                        color: AfterFrameColors.lime.withValues(alpha: .22),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AfterFrameColors.lime.withValues(alpha: .13),
+                          blurRadius: 32,
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Image.asset(
+                        'assets/branding/logo.png',
+                        width: 76,
+                        height: 76,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Center(
+                  child: Text(
+                    sheetContext.l10n.text('aboutLegalese'),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                      height: 1.45,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: .035),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: AfterFrameColors.glassBorder),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.phonelink_lock_rounded,
+                        color: AfterFrameColors.lime,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          sheetContext.l10n.text('privacySummary'),
+                          style: const TextStyle(
+                            color: AfterFrameColors.textSecondary,
+                            fontSize: 13,
+                            height: 1.55,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Positioned.fill(child: AfterFrameConfetti()),
+        ],
       ),
-      applicationLegalese: context.l10n.text('aboutLegalese'),
-      children: [
-        const SizedBox(height: 12),
-        Text(context.l10n.text('privacySummary')),
-      ],
     );
   }
 
@@ -691,92 +746,126 @@ class _ProfileState extends State<_Profile> {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final language = AppLanguageScope.controllerOf(context);
-    return ListView(
-      padding: const EdgeInsets.all(20),
+    return Stack(
       children: [
-        const SizedBox(height: 10),
-        Text(
-          l10n.text('profileTitle'),
-          style: Theme.of(context).textTheme.headlineMedium,
-        ),
-        const SizedBox(height: 18),
-        const _LocalWorkspaceCard(),
-        const SizedBox(height: 28),
-        _ProfileSectionLabel(l10n.text('preferences')),
-        const SizedBox(height: 10),
-        _ProfileTile(
-          icon: Icons.language_rounded,
-          title: l10n.text('appLanguage'),
-          value: l10n.text(
-            language.language == AppLanguage.chinese ? 'chinese' : 'english',
-          ),
-          onTap: () => _showLanguagePicker(language),
-        ),
-        const SizedBox(height: 18),
-        _ProfileSectionLabel(l10n.text('worksAndExport')),
-        const SizedBox(height: 10),
-        _ProfileTile(
-          icon: Icons.photo_library_outlined,
-          title: l10n.text('album'),
-          value: l10n.text('albumValue'),
-          onTap: widget.onOpenWorks,
-        ),
-        _ProfileTile(
-          icon: Icons.high_quality_rounded,
-          title: l10n.text('exportQuality'),
-          value: l10n.text('adaptiveQuality'),
-          onTap: () => _showInfo(
-            titleKey: 'exportQuality',
-            bodyKey: 'exportQualityDetail',
-            icon: Icons.high_quality_rounded,
-          ),
-        ),
-        _ProfileTile(
-          icon: Icons.motion_photos_on_outlined,
-          title: l10n.text('liveContainer'),
-          value: l10n.text('motionPhotoAndMp4'),
-          onTap: () => _showInfo(
-            titleKey: 'liveContainer',
-            bodyKey: 'liveContainerDetail',
-            icon: Icons.motion_photos_on_outlined,
-          ),
-        ),
-        const SizedBox(height: 18),
-        _ProfileSectionLabel(l10n.text('storageAndPrivacy')),
-        const SizedBox(height: 10),
-        _ProfileTile(
-          icon: Icons.cleaning_services_outlined,
-          title: l10n.text('temporaryCache'),
-          value: _cacheBusy
-              ? l10n.text('calculating')
-              : _cacheBytes == null
-              ? l10n.text('unavailable')
-              : _formatBytes(_cacheBytes!),
-          subtitle: _cacheFiles == null
-              ? null
-              : l10n.text('cacheFileCount', {'count': _cacheFiles!}),
-          busy: _cacheBusy,
-          onTap: _onCacheTap,
-        ),
-        _ProfileTile(
-          icon: Icons.privacy_tip_outlined,
-          title: l10n.text('privacyAndData'),
-          value: l10n.text('localProcessing'),
-          onTap: () => _showInfo(
-            titleKey: 'privacyAndData',
-            bodyKey: 'privacyAndDataDetail',
-            icon: Icons.privacy_tip_outlined,
-          ),
-        ),
-        const SizedBox(height: 18),
-        _ProfileSectionLabel(l10n.text('supportAndAbout')),
-        const SizedBox(height: 10),
-        const AppUpdateCard(),
-        _ProfileTile(
-          icon: Icons.info_outline_rounded,
-          title: l10n.text('about'),
-          value: 'AfterFrame',
-          onTap: _showAbout,
+        Positioned.fill(child: MemoryGlowBackground(active: widget.active)),
+        ListView(
+          padding: const EdgeInsets.fromLTRB(20, 22, 20, 40),
+          children: [
+            Text(
+              'AFTERFRAME  /  ${l10n.text('profileTitle')}',
+              style: const TextStyle(
+                color: AfterFrameColors.lime,
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.8,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              l10n.text('profileTitle'),
+              style: Theme.of(
+                context,
+              ).textTheme.displaySmall?.copyWith(fontSize: 36),
+            ),
+            const SizedBox(height: 22),
+            const _LocalWorkspaceCard(),
+            const SizedBox(height: 28),
+            _ProfileSectionLabel(l10n.text('preferences')),
+            const SizedBox(height: 10),
+            _ProfileGroup(
+              children: [
+                _ProfileTile(
+                  icon: Icons.language_rounded,
+                  title: l10n.text('appLanguage'),
+                  value: l10n.text(
+                    language.language == AppLanguage.chinese
+                        ? 'chinese'
+                        : 'english',
+                  ),
+                  onTap: () => _showLanguagePicker(language),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            _ProfileSectionLabel(l10n.text('worksAndExport')),
+            const SizedBox(height: 10),
+            _ProfileGroup(
+              children: [
+                _ProfileTile(
+                  icon: Icons.photo_library_outlined,
+                  title: l10n.text('album'),
+                  value: l10n.text('albumValue'),
+                  onTap: widget.onOpenWorks,
+                ),
+                _ProfileTile(
+                  icon: Icons.high_quality_rounded,
+                  title: l10n.text('exportQuality'),
+                  value: l10n.text('adaptiveQuality'),
+                  onTap: () => _showInfo(
+                    titleKey: 'exportQuality',
+                    bodyKey: 'exportQualityDetail',
+                    icon: Icons.high_quality_rounded,
+                  ),
+                ),
+                _ProfileTile(
+                  icon: Icons.motion_photos_on_outlined,
+                  title: l10n.text('liveContainer'),
+                  value: l10n.text('motionPhotoAndMp4'),
+                  onTap: () => _showInfo(
+                    titleKey: 'liveContainer',
+                    bodyKey: 'liveContainerDetail',
+                    icon: Icons.motion_photos_on_outlined,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            _ProfileSectionLabel(l10n.text('storageAndPrivacy')),
+            const SizedBox(height: 10),
+            _ProfileGroup(
+              children: [
+                _ProfileTile(
+                  icon: Icons.cleaning_services_outlined,
+                  title: l10n.text('temporaryCache'),
+                  value: _cacheBusy
+                      ? l10n.text('calculating')
+                      : _cacheBytes == null
+                      ? l10n.text('unavailable')
+                      : _formatBytes(_cacheBytes!),
+                  subtitle: _cacheFiles == null
+                      ? null
+                      : l10n.text('cacheFileCount', {'count': _cacheFiles!}),
+                  busy: _cacheBusy,
+                  onTap: _onCacheTap,
+                ),
+                _ProfileTile(
+                  icon: Icons.privacy_tip_outlined,
+                  title: l10n.text('privacyAndData'),
+                  value: l10n.text('localProcessing'),
+                  onTap: () => _showInfo(
+                    titleKey: 'privacyAndData',
+                    bodyKey: 'privacyAndDataDetail',
+                    icon: Icons.privacy_tip_outlined,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            _ProfileSectionLabel(l10n.text('supportAndAbout')),
+            const SizedBox(height: 10),
+            _ProfileGroup(
+              children: [
+                const AppUpdateCard(embedded: true),
+                _ProfileTile(
+                  icon: Icons.info_outline_rounded,
+                  title: l10n.text('about'),
+                  value: 'AfterFrame',
+                  onTap: _showAbout,
+                ),
+              ],
+            ),
+          ],
         ),
       ],
     );
@@ -804,21 +893,52 @@ class _LocalWorkspaceCard extends StatelessWidget {
       container: true,
       label:
           '${l10n.text('localWorkspaceTitle')}，${l10n.text('localWorkspaceDetail')}',
-      child: Card(
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              AfterFrameColors.lime.withValues(alpha: .075),
+              AfterFrameColors.elevated,
+              AfterFrameColors.elevated,
+            ],
+            stops: const [0, .46, 1],
+          ),
+          borderRadius: BorderRadius.circular(AfterFrameRadius.lg),
+          border: Border.all(color: Colors.white.withValues(alpha: .075)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: .24),
+              blurRadius: 24,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
         child: Padding(
-          padding: const EdgeInsets.all(18),
+          padding: const EdgeInsets.fromLTRB(16, 16, 14, 16),
           child: Row(
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(18),
-                child: Image.asset(
-                  'assets/branding/logo.png',
-                  width: 62,
-                  height: 62,
-                  fit: BoxFit.cover,
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: .2),
+                  borderRadius: BorderRadius.circular(17),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: .08),
+                  ),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(13),
+                  child: Image.asset(
+                    'assets/branding/logo.png',
+                    width: 48,
+                    height: 48,
+                    fit: BoxFit.cover,
+                  ),
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -826,26 +946,56 @@ class _LocalWorkspaceCard extends StatelessWidget {
                     Text(
                       l10n.text('localWorkspaceTitle'),
                       style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -.15,
                       ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 5),
+                    const SizedBox(height: 4),
                     Text(
                       l10n.text('localWorkspaceDetail'),
                       style: const TextStyle(
-                        color: AfterFrameColors.muted,
-                        fontSize: 12,
-                        height: 1.4,
+                        color: AfterFrameColors.textTertiary,
+                        fontSize: 11,
+                        height: 1.35,
                       ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: 10),
-              const Icon(
-                Icons.phonelink_lock_rounded,
-                color: AfterFrameColors.lime,
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+                decoration: BoxDecoration(
+                  color: AfterFrameColors.lime.withValues(alpha: .075),
+                  borderRadius: BorderRadius.circular(99),
+                  border: Border.all(
+                    color: AfterFrameColors.lime.withValues(alpha: .13),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.lock_outline_rounded,
+                      size: 13,
+                      color: AfterFrameColors.lime,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      l10n.text('onDeviceBadge'),
+                      style: const TextStyle(
+                        color: AfterFrameColors.lime,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -861,11 +1011,43 @@ class _ProfileSectionLabel extends StatelessWidget {
   final String title;
 
   @override
-  Widget build(BuildContext context) => Text(
-    title,
-    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-      color: AfterFrameColors.muted,
-      letterSpacing: .2,
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(left: 4),
+    child: Text(
+      title.toUpperCase(),
+      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+        color: AfterFrameColors.textTertiary,
+        fontSize: 11,
+        letterSpacing: 1.05,
+      ),
+    ),
+  );
+}
+
+class _ProfileGroup extends StatelessWidget {
+  const _ProfileGroup({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color: AfterFrameColors.glass,
+      borderRadius: BorderRadius.circular(AfterFrameRadius.lg),
+      border: Border.all(color: AfterFrameColors.glassBorder),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: Column(
+      children: [
+        for (var index = 0; index < children.length; index++) ...[
+          children[index],
+          if (index != children.length - 1)
+            const Padding(
+              padding: EdgeInsets.only(left: 68),
+              child: Divider(height: 1, color: AfterFrameColors.glassBorder),
+            ),
+        ],
+      ],
     ),
   );
 }
@@ -888,36 +1070,75 @@ class _ProfileTile extends StatelessWidget {
   final bool busy;
 
   @override
-  Widget build(BuildContext context) => Card(
-    margin: const EdgeInsets.only(bottom: 10),
-    child: ListTile(
-      leading: Icon(icon),
-      title: Text(title),
-      subtitle: subtitle == null ? null : Text(subtitle!),
+  Widget build(BuildContext context) => Material(
+    color: Colors.transparent,
+    child: InkWell(
       onTap: busy ? null : onTap,
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (busy)
-            const SizedBox.square(
-              dimension: 16,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          else
-            ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.sizeOf(context).width * .4,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 13, 12, 13),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: AfterFrameColors.lime.withValues(alpha: .09),
+                borderRadius: BorderRadius.circular(13),
               ),
-              child: Text(
-                value,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: AfterFrameColors.muted),
+              child: Icon(icon, size: 20, color: AfterFrameColors.lime),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle!,
+                      style: const TextStyle(
+                        color: AfterFrameColors.textTertiary,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
-          const SizedBox(width: 4),
-          const Icon(Icons.chevron_right_rounded),
-        ],
+            const SizedBox(width: 8),
+            if (busy)
+              const SizedBox.square(
+                dimension: 17,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.sizeOf(context).width * .32,
+                ),
+                child: Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.end,
+                  style: const TextStyle(
+                    color: AfterFrameColors.textTertiary,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            const SizedBox(width: 5),
+            const Icon(
+              Icons.chevron_right_rounded,
+              size: 20,
+              color: AfterFrameColors.textTertiary,
+            ),
+          ],
+        ),
       ),
     ),
   );
